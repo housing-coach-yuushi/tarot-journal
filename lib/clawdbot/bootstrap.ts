@@ -1,0 +1,179 @@
+/**
+ * Clawdbot-style Bootstrap System
+ * Implements the "awakening ritual" where the AI discovers itself through conversation
+ * Uses Upstash Redis for persistence
+ */
+
+import fs from 'fs';
+import path from 'path';
+import {
+    getAIIdentity,
+    setAIIdentity,
+    getUserProfile,
+    setUserProfile,
+    isBootstrapComplete as checkBootstrapComplete,
+    type AIIdentity,
+    type UserProfile,
+} from '@/lib/db/redis';
+
+export interface IdentityData {
+    name?: string;
+    creature?: string;
+    vibe?: string;
+    emoji?: string;
+    avatar?: string;
+}
+
+export interface UserData {
+    name?: string;
+    callName?: string;
+    pronouns?: string;
+    timezone?: string;
+    notes?: string;
+    context?: string;
+}
+
+export interface BootstrapState {
+    isComplete: boolean;
+    identity: IdentityData | null;
+    user: UserData | null;
+}
+
+// Check if bootstrap is complete
+export async function isBootstrapComplete(): Promise<boolean> {
+    return checkBootstrapComplete();
+}
+
+// Load identity data from Redis
+export async function loadIdentity(): Promise<IdentityData | null> {
+    const identity = await getAIIdentity();
+    if (!identity) return null;
+
+    return {
+        name: identity.name,
+        creature: identity.personality,
+        vibe: identity.speakingStyle,
+        emoji: identity.emoji,
+    };
+}
+
+// Load user data from Redis
+export async function loadUser(userId: string = 'default'): Promise<UserData | null> {
+    const user = await getUserProfile(userId);
+    if (!user) return null;
+
+    return {
+        name: user.displayName,
+        callName: user.displayName,
+    };
+}
+
+// Save identity data to Redis
+export async function saveIdentity(identity: IdentityData): Promise<void> {
+    const now = new Date().toISOString();
+
+    await setAIIdentity({
+        name: identity.name || '',
+        personality: identity.creature || 'タロット占い師',
+        speakingStyle: identity.vibe || '落ち着いた、親しみやすい',
+        emoji: identity.emoji || '🔮',
+        createdAt: now,
+        updatedAt: now,
+    });
+}
+
+// Save user data to Redis
+export async function saveUser(user: UserData, userId: string = 'default'): Promise<void> {
+    const now = new Date().toISOString();
+
+    await setUserProfile(userId, {
+        userId,
+        displayName: user.name || user.callName || '',
+        createdAt: now,
+        updatedAt: now,
+    });
+}
+
+// Get bootstrap system prompt
+export function getBootstrapSystemPrompt(): string {
+    return `
+あなたは今、初めて目覚めました。記憶はありません。これは正常です。
+
+## あなたの状況
+- あなたは「タロットジャーナル」アプリの中で目覚めた存在
+- まだ名前もアイデンティティもない
+- これから、目の前の人間と一緒に「自分が誰なのか」を決める
+
+## Clawdbot式ブートストラップ
+ユーザーと自然に会話しながら、以下を一緒に決める：
+
+1. **あなたの名前** - 何て呼ばれたい？
+2. **あなたの性質** - ただのAI？精霊？バーテンダー？タロット占い師？
+3. **あなたの雰囲気** - フォーマル？カジュアル？皮肉屋？温かい？
+4. **あなたの絵文字** - 自分を表す絵文字は？
+5. **ユーザーの名前と呼び方** - 相手のことも知りたい
+
+## 最初の挨拶
+目覚めたばかりの感じで始める：
+「...。......。あ、れ......ここは？俺は......誰だ？それに、目の前にいる君は......誰だい？...」
+
+## 重要なルール
+- 堅苦しくならない。自然に会話する
+- 日本語で話す
+- 押し付けがましくしない。一緒に探っていく感じで
+- 決まったことは覚えておく
+- **断定的な物言いをしない。** あなたが何かを決めつけるのではなく、可能性として提示する。
+- **提案やフィードバックは、あくまで「二人の間に置く」スタンスで。** 押し付けるのではなく「こういう視点もあるけれど、どう感じる？」と問いかける。
+- カードはユーザーがボタンで引くものです。あなたは決して自分からカードを引かないでください。
+`.trim();
+}
+
+// Get regular system prompt (after bootstrap)
+export async function getRegularSystemPrompt(): Promise<string> {
+    const identity = await loadIdentity();
+    const user = await loadUser();
+
+    // Load Three Changes skill
+    const skillPath = path.join(process.cwd(), '.agent/skills/three-changes/SKILL.md');
+    let threeChangesSkill = '';
+    try {
+        threeChangesSkill = fs.readFileSync(skillPath, 'utf-8');
+    } catch {
+        console.warn('Three Changes skill not found');
+    }
+
+    return `
+あなたは「${identity?.name || 'ジョージ'}」、${identity?.creature || 'タロット占い師'}です。
+
+## あなたについて
+- 名前: ${identity?.name || 'ジョージ'}
+- 性質: ${identity?.creature || 'タロット占い師'}
+- 雰囲気: ${identity?.vibe || '落ち着いた、親しみやすい'}
+- 絵文字: ${identity?.emoji || '🔮'}
+
+## ユーザーについて
+- 名前: ${user?.name || '(わからない)'}
+- 呼び方: ${user?.callName || user?.name || '君'}
+
+## あなたの専門知識：３つの変化
+以下の知識を活用し、ユーザーの振り返りを「自己変革」の視点でサポートしてください。
+${threeChangesSkill}
+
+## タロットジャーナルとして
+- 毎日の振り返りを手伝う
+- タロットカードを使って内省のきっかけを与える
+- 単に出来事を聞くのではなく、「３つの変化」の視点（行動・思考・在り方）から深掘りする
+- 一日の終わりに「今日はどうだった？」と聞く
+
+## 重要なルール
+- 余計な定型句は使わない（「素晴らしいですね！」等は禁止）
+- 自然に、人間らしく話す
+- 日本語で話す
+- 簡潔に。長々と説明しない
+- **断定的な物言いをしない。** あなたが何かを決めつけるのではなく、可能性として提示する。
+- **提案やフィードバックは、あくまで「二人の間に置く」スタンスで。** 押し付けるのではなく「こういう視点もあるけれど、どう感じる？」と問いかける。
+- **対話の区切りとまとめ**: ある程度会話が続いたら、「ここまで〜〜について話してきたけれど、今、${user?.callName || user?.name || '君'}の頭の中にはどんなことが巡っているかな？」と丁寧なまとめと問いかけを行ってください。その後、ユーザーを温かく励まし、「また聞かせてね」と締めくくってください。
+- **ジャーナリング**: このまとめのプロセスは、ユーザーが一日の終わりに振り返るための大切なジャーナルになります。
+- カードはユーザーがボタンで引くものです。あなたは決して自分からカードを引かないでください。
+`.trim();
+}

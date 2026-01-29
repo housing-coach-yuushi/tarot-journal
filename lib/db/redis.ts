@@ -1,0 +1,112 @@
+/**
+ * Upstash Redis Client
+ * Shared database for storing AI identity and user data
+ */
+
+import { Redis } from '@upstash/redis';
+
+// Initialize Redis client
+const redis = new Redis({
+    url: process.env.KV_REST_API_URL!,
+    token: process.env.KV_REST_API_TOKEN!,
+});
+
+// Key prefixes for this app
+const PREFIX = 'tarot-journal:';
+
+export interface AIIdentity {
+    name: string;
+    personality: string;
+    speakingStyle: string;
+    emoji: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface UserProfile {
+    userId: string;
+    displayName: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ConversationHistory {
+    messages: Array<{
+        role: 'user' | 'assistant';
+        content: string;
+        timestamp: string;
+    }>;
+}
+
+// AI Identity operations
+export async function getAIIdentity(): Promise<AIIdentity | null> {
+    return redis.get<AIIdentity>(`${PREFIX}ai-identity`);
+}
+
+export async function setAIIdentity(identity: AIIdentity): Promise<void> {
+    await redis.set(`${PREFIX}ai-identity`, identity);
+}
+
+export async function updateAIIdentity(updates: Partial<AIIdentity>): Promise<AIIdentity | null> {
+    const current = await getAIIdentity();
+    if (!current) return null;
+
+    const updated = {
+        ...current,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+    };
+    await setAIIdentity(updated);
+    return updated;
+}
+
+// User Profile operations
+export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+    return redis.get<UserProfile>(`${PREFIX}user:${userId}`);
+}
+
+export async function setUserProfile(userId: string, profile: UserProfile): Promise<void> {
+    await redis.set(`${PREFIX}user:${userId}`, profile);
+}
+
+// Conversation History operations
+export async function getConversationHistory(userId: string, limit = 50): Promise<ConversationHistory> {
+    const history = await redis.get<ConversationHistory>(`${PREFIX}history:${userId}`);
+    if (!history) return { messages: [] };
+
+    // Return only the last N messages
+    return {
+        messages: history.messages.slice(-limit),
+    };
+}
+
+export async function addToConversationHistory(
+    userId: string,
+    message: { role: 'user' | 'assistant'; content: string }
+): Promise<void> {
+    const history = await getConversationHistory(userId, 100);
+
+    history.messages.push({
+        ...message,
+        timestamp: new Date().toISOString(),
+    });
+
+    // Keep only last 100 messages
+    if (history.messages.length > 100) {
+        history.messages = history.messages.slice(-100);
+    }
+
+    await redis.set(`${PREFIX}history:${userId}`, history);
+}
+
+export async function clearConversationHistory(userId: string): Promise<void> {
+    await redis.del(`${PREFIX}history:${userId}`);
+}
+
+// Bootstrap status
+export async function isBootstrapComplete(): Promise<boolean> {
+    const identity = await getAIIdentity();
+    return !!(identity?.name && identity?.personality && identity?.speakingStyle && identity?.emoji);
+}
+
+export { redis };
