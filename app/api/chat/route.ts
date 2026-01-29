@@ -72,7 +72,33 @@ export async function POST(request: NextRequest) {
 
         // Call Kie.ai API
         const client = getKieApiClient();
-        const response = await client.chat(messages);
+        let response = await client.chat(messages);
+
+        // Parse user_data block if present (for onboarding)
+        const userDataMatch = response.match(/```user_data\n([\s\S]*?)```/);
+        if (userDataMatch) {
+            const userData: { name?: string; callName?: string } = {};
+            const lines = userDataMatch[1].split('\n');
+            for (const line of lines) {
+                const [key, ...valueParts] = line.split(':');
+                const value = valueParts.join(':').trim();
+                if (key.trim() === 'name' && value) {
+                    userData.name = value;
+                }
+                if (key.trim() === 'callName' && value) {
+                    userData.callName = value;
+                }
+            }
+
+            // Save user data if we got a name
+            if (userData.name) {
+                await saveUser(userData, userId);
+                console.log(`Saved user data for ${userId}:`, userData);
+            }
+
+            // Remove the user_data block from the response
+            response = response.replace(/```user_data\n[\s\S]*?```/g, '').trim();
+        }
 
         // Save assistant response to history and journal
         await addToConversationHistory(userId, { role: 'assistant', content: response });
@@ -86,6 +112,7 @@ export async function POST(request: NextRequest) {
             message: response,
             role: 'assistant',
             isBootstrapped: await isBootstrapComplete(),
+            userOnboarded: await isUserOnboarded(userId),
             identity,
             user,
         });
