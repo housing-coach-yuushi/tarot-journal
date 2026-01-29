@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getKieApiClient } from '@/lib/keiapi/client';
-import { updateJournal } from '@/lib/journal/storage';
+import { updateJournal, getTodayDate } from '@/lib/journal/storage';
 
 export async function POST(request: NextRequest) {
     try {
@@ -44,7 +44,8 @@ ${conversationText}`;
         const summary = contentMatch ? contentMatch[1].trim() : text;
 
         // Update cloud storage (Redis)
-        await updateJournal(userId, {
+        const date = getTodayDate();
+        await updateJournal(userId, date, {
             summary: summary,
             // You might want to save the title in metadata or summary
         });
