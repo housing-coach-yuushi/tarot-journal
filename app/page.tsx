@@ -138,10 +138,23 @@ export default function Home() {
         log('初期化開始...');
         setIsPreparing(true);
 
-        // Fetch bootstrap status and initial message in parallel
+        // Fetch bootstrap status and initial message in parallel with timeout
+        const fetchWithTimeout = async (url: string, options?: RequestInit, timeout = 10000) => {
+          const controller = new AbortController();
+          const id = setTimeout(() => controller.abort(), timeout);
+          try {
+            const response = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(id);
+            return response;
+          } catch (err) {
+            clearTimeout(id);
+            throw err;
+          }
+        };
+
         const [statusRes, chatRes] = await Promise.all([
-          fetch('/api/chat'),
-          fetch('/api/chat', {
+          fetchWithTimeout('/api/chat'),
+          fetchWithTimeout('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ history: [] }),

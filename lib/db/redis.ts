@@ -6,9 +6,19 @@
 import { Redis } from '@upstash/redis';
 
 // Initialize Redis client
+const url = process.env.KV_REST_API_URL;
+const token = process.env.KV_REST_API_TOKEN;
+
+if (!url || !token) {
+    console.error('Redis environment variables missing:', { url: !!url, token: !!token });
+}
+
+// Ensure URL starts with http/https
+const formattedUrl = url?.startsWith('http') ? url : `https://${url}`;
+
 const redis = new Redis({
-    url: process.env.KV_REST_API_URL!,
-    token: process.env.KV_REST_API_TOKEN!,
+    url: formattedUrl || 'https://unexpected-missing-url', // Fallback to avoid immediate crash on init, requests will still fail
+    token: token || 'missing-token',
 });
 
 // Key prefixes for this app
