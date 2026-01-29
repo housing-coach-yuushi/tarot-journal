@@ -31,6 +31,19 @@ interface BootstrapState {
   };
 }
 
+// Generate or retrieve unique user ID
+function getUserId(): string {
+  if (typeof window === 'undefined') return 'default';
+
+  const stored = localStorage.getItem('tarot-journal-user-id');
+  if (stored) return stored;
+
+  // Generate new UUID
+  const newId = 'user-' + crypto.randomUUID();
+  localStorage.setItem('tarot-journal-user-id', newId);
+  return newId;
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -45,8 +58,14 @@ export default function Home() {
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('default');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Initialize userId on client side
+  useEffect(() => {
+    setUserId(getUserId());
+  }, []);
 
   // Debug logger
   const log = useCallback((msg: string) => {
@@ -193,12 +212,16 @@ export default function Home() {
           }
         };
 
+        // Get userId for API calls
+        const currentUserId = getUserId();
+        setUserId(currentUserId);
+
         const [statusRes, chatRes] = await Promise.all([
-          fetchWithTimeout('/api/chat'),
+          fetchWithTimeout(`/api/chat?userId=${currentUserId}`),
           fetchWithTimeout('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ history: [] }),
+            body: JSON.stringify({ history: [], userId: currentUserId }),
           }),
         ]);
 
@@ -296,6 +319,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
+          userId,
           history: messages.map(m => ({
             role: m.role === 'tarot' ? 'user' : m.role,  // Convert tarot to user for API
             content: m.role === 'tarot' && m.card

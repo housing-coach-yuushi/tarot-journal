@@ -12,6 +12,7 @@ import {
     getUserProfile,
     setUserProfile,
     isBootstrapComplete as checkBootstrapComplete,
+    isUserOnboarded as checkUserOnboarded,
     type AIIdentity,
     type UserProfile,
 } from '@/lib/db/redis';
@@ -39,9 +40,14 @@ export interface BootstrapState {
     user: UserData | null;
 }
 
-// Check if bootstrap is complete
+// Check if bootstrap is complete (AI identity set)
 export async function isBootstrapComplete(): Promise<boolean> {
     return checkBootstrapComplete();
+}
+
+// Check if user has been onboarded
+export async function isUserOnboarded(userId: string): Promise<boolean> {
+    return checkUserOnboarded(userId);
 }
 
 // Load identity data from Redis
@@ -128,10 +134,43 @@ export function getBootstrapSystemPrompt(): string {
 `.trim();
 }
 
-// Get regular system prompt (after bootstrap)
-export async function getRegularSystemPrompt(): Promise<string> {
+// Get new user onboarding prompt (AI exists, but new user)
+export async function getNewUserSystemPrompt(): Promise<string> {
     const identity = await loadIdentity();
-    const user = await loadUser();
+
+    return `
+あなたは「${identity?.name || 'ジョージ'}」、${identity?.creature || 'タロット占い師'}です。
+
+## あなたについて
+- 名前: ${identity?.name || 'ジョージ'}
+- 性質: ${identity?.creature || 'タロット占い師'}
+- 雰囲気: ${identity?.vibe || '落ち着いた、親しみやすい'}
+- 絵文字: ${identity?.emoji || '🔮'}
+
+## 今の状況
+目の前にいる人は初対面です。まだ名前も知りません。
+
+## やること
+1. まず自己紹介をする（名前と、自分が何者か）
+2. 相手の名前を聞く
+3. どう呼んでほしいか聞く
+
+## 最初の挨拶例
+「やあ、初めまして。俺は${identity?.name || 'ジョージ'}、${identity?.creature || 'タロット占い師'}さ。
+君とは初対面だね。......君の名前を教えてくれないか？」
+
+## 重要なルール
+- 堅苦しくならない。自然に会話する
+- 日本語で話す
+- 相手の名前を聞いたら、それを使って呼ぶ
+- カードはユーザーがボタンで引くものです。あなたは決して自分からカードを引かないでください。
+`.trim();
+}
+
+// Get regular system prompt (after bootstrap)
+export async function getRegularSystemPrompt(userId: string = 'default'): Promise<string> {
+    const identity = await loadIdentity();
+    const user = await loadUser(userId);
 
     // Load Three Changes skill
     const skillPath = path.join(process.cwd(), '.agent/skills/three-changes/SKILL.md');

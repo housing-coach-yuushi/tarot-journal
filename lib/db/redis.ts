@@ -113,10 +113,16 @@ export async function clearConversationHistory(userId: string): Promise<void> {
     await redis.del(`${PREFIX}history:${userId}`);
 }
 
-// Bootstrap status
+// Bootstrap status (AI identity)
 export async function isBootstrapComplete(): Promise<boolean> {
     const identity = await getAIIdentity();
     return !!(identity?.name && identity?.personality && identity?.speakingStyle && identity?.emoji);
+}
+
+// Check if user has completed their onboarding
+export async function isUserOnboarded(userId: string): Promise<boolean> {
+    const user = await getUserProfile(userId);
+    return !!(user?.displayName);
 }
 
 export { redis };

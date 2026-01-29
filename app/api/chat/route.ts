@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getKieApiClient, ChatMessage } from '@/lib/keiapi/client';
 import {
     isBootstrapComplete,
+    isUserOnboarded,
     getBootstrapSystemPrompt,
+    getNewUserSystemPrompt,
     getRegularSystemPrompt,
     saveIdentity,
     saveUser,
@@ -29,9 +31,19 @@ export async function POST(request: NextRequest) {
 
         // Determine which system prompt to use
         const isBootstrapped = await isBootstrapComplete();
-        const systemPrompt = isBootstrapped
-            ? await getRegularSystemPrompt()
-            : getBootstrapSystemPrompt();
+        const userOnboarded = await isUserOnboarded(userId);
+
+        let systemPrompt: string;
+        if (!isBootstrapped) {
+            // AI hasn't been born yet - do full bootstrap
+            systemPrompt = getBootstrapSystemPrompt();
+        } else if (!userOnboarded) {
+            // AI exists but this is a new user - do user onboarding
+            systemPrompt = await getNewUserSystemPrompt();
+        } else {
+            // Both AI and user are set up - normal mode
+            systemPrompt = await getRegularSystemPrompt(userId);
+        }
 
         // Build messages
         const messages: ChatMessage[] = [
@@ -94,12 +106,14 @@ export async function GET(request: NextRequest) {
         const userId = searchParams.get('userId') || 'default';
 
         const isBootstrapped = await isBootstrapComplete();
+        const userOnboarded = await isUserOnboarded(userId);
         const identity = await loadIdentity();
         const user = await loadUser(userId);
         const history = await getConversationHistory(userId, 20);
 
         return NextResponse.json({
             isBootstrapped,
+            userOnboarded,
             identity,
             user,
             history: history.messages,
