@@ -625,7 +625,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="メッセージを入力..."
-                className="flex-1 bg-transparent text-white placeholder-white/40 outline-none text-sm"
+                className="flex-1 bg-transparent text-white placeholder-white/40 outline-none text-base"
                 disabled={isSending || isListening}
               />
               <motion.button
