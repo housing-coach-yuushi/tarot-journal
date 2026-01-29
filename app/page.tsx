@@ -43,6 +43,8 @@ export default function Home() {
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -121,10 +123,12 @@ export default function Home() {
           playPromise
             .then(() => {
               log('再生開始');
+              setAudioUnlocked(true);
             })
             .catch((e) => {
               log('再生自動ブロック(Play): ' + (e as Error).message);
-              alert('音声を再生するには画面をタップしてください'); // Fallback for iOS
+              // Save audio URL for later playback when user taps
+              setPendingAudioUrl(audioUrl);
               setIsSpeaking(false);
             });
         }
@@ -146,6 +150,25 @@ export default function Home() {
     }
     setIsSpeaking(false);
   }, []);
+
+  // Play pending audio (after user interaction to unlock audio)
+  const playPendingAudio = useCallback(async () => {
+    if (!pendingAudioUrl || !audioRef.current) return;
+
+    try {
+      log('ペンディング音声再生...');
+      audioRef.current.src = pendingAudioUrl;
+      audioRef.current.load();
+      setIsSpeaking(true);
+      await audioRef.current.play();
+      log('ペンディング音声再生成功');
+      setAudioUnlocked(true);
+      setPendingAudioUrl(null);
+    } catch (e) {
+      log('ペンディング音声再生失敗: ' + (e as Error).message);
+      setIsSpeaking(false);
+    }
+  }, [pendingAudioUrl, log]);
 
   // Check bootstrap status and get initial message
   useEffect(() => {
@@ -220,8 +243,11 @@ export default function Home() {
                   setIsSpeaking(true);
                   await audioRef.current.play().then(() => {
                     log('自動再生成功');
+                    setAudioUnlocked(true);
                   }).catch((e) => {
                     log('自動再生ブロック: ' + e.message);
+                    // Save audio URL for later playback when user taps
+                    setPendingAudioUrl(audioUrl);
                     setIsSpeaking(false);
                   });
                 }
@@ -414,6 +440,28 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Audio Unlock Prompt - Subtle tap indicator for Safari */}
+      <AnimatePresence>
+        {pendingAudioUrl && !isLoading && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-[90]"
+          >
+            <motion.button
+              onClick={playPendingAudio}
+              whileTap={{ scale: 0.95 }}
+              className="flex items-center gap-2 px-4 py-2 bg-white/15 backdrop-blur-md rounded-full border border-white/20 text-white/90 text-sm"
+            >
+              <Volume2 size={16} />
+              <span>タップして音声を再生</span>
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Aurora Glow Effect */}
       <GlowVisualizer isActive={isListening || isSending || isSpeaking} />
 
@@ -537,8 +585,8 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         </div>
       )}
 
-      {/* Debug Log - Improved visibility */}
-      {true && (
+      {/* Debug Log - Only in development */}
+      {process.env.NODE_ENV === 'development' && (
         <div className="absolute top-[65px] left-4 z-50 pointer-events-none max-w-[250px]">
           <div className="bg-black/60 backdrop-blur-md rounded-md p-2 font-mono text-[10px] sm:text-[12px] text-green-400 border border-green-500/20">
             <div className="flex gap-2 mb-1 border-b border-white/10 pb-1">
