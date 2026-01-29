@@ -53,6 +53,7 @@ export default function Home() {
   const [showChat, setShowChat] = useState(true);
   const [bootstrap, setBootstrap] = useState<BootstrapState>({ isBootstrapped: false });
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [debugLog, setDebugLog] = useState<string[]>([]);
@@ -110,7 +111,7 @@ export default function Home() {
 
     try {
       log('音声生成開始: ' + text.substring(0, 10) + '...');
-      setIsSpeaking(true);
+      setIsGeneratingAudio(true);
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -119,10 +120,10 @@ export default function Home() {
 
       if (response.ok) {
         log('音声取得完了、再生準備...');
+        setIsGeneratingAudio(false);
         const audioBlob = await response.blob();
         if (audioBlob.size === 0) {
           log('音声データが空です');
-          setIsSpeaking(false);
           return;
         }
 
@@ -152,13 +153,13 @@ export default function Home() {
         }
       } else {
         log('音声取得エラー: ' + response.status);
-        setIsSpeaking(false);
+        setIsGeneratingAudio(false);
       }
     } catch (error) {
       log('TTS例外エラー: ' + (error as Error).message);
-      setIsSpeaking(false);
+      setIsGeneratingAudio(false);
     }
-  }, [ttsEnabled]);
+  }, [ttsEnabled, log]);
 
   // Stop TTS
   const stopTTS = useCallback(() => {
@@ -584,6 +585,26 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                       <Loader2 size={16} />
                     </motion.div>
                     <span className="text-white/50 text-sm">考えています...</span>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Audio generating indicator */}
+              {isGeneratingAudio && !isSending && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex justify-start"
+                >
+                  <div className="px-4 py-2 rounded-full bg-white/5 backdrop-blur-sm flex items-center gap-2">
+                    <motion.div
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ repeat: Infinity, duration: 1 }}
+                      className="text-white/40"
+                    >
+                      <Volume2 size={14} />
+                    </motion.div>
+                    <span className="text-white/40 text-xs">音声生成中...</span>
                   </div>
                 </motion.div>
               )}
