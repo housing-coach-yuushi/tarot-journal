@@ -139,15 +139,18 @@ export default function Home() {
         setIsPreparing(true);
 
         // Fetch bootstrap status and initial message in parallel with timeout
-        const fetchWithTimeout = async (url: string, options?: RequestInit, timeout = 10000) => {
+        const fetchWithTimeout = async (url: string, options?: RequestInit, timeout = 60000) => {
           const controller = new AbortController();
           const id = setTimeout(() => controller.abort(), timeout);
           try {
             const response = await fetch(url, { ...options, signal: controller.signal });
             clearTimeout(id);
             return response;
-          } catch (err) {
+          } catch (err: unknown) {
             clearTimeout(id);
+            if (err instanceof Error && err.name === 'AbortError') {
+              throw new Error('サーバー応答タイムアウト (60秒)');
+            }
             throw err;
           }
         };
