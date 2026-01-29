@@ -58,7 +58,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
       if (SpeechRecognition) {
         const recognition = new SpeechRecognition();
         recognition.lang = lang;
-        recognition.continuous = false;  // Fixed for push-to-talk reliability
+        recognition.continuous = true;  // Changed to true for continuous push-to-talk
         recognition.interimResults = true;
 
         recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -69,13 +69,13 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
             fullTranscript += event.results[i][0].transcript;
           }
 
-          console.log('[STT] Result:', fullTranscript);
+          // console.log('[STT] Result:', fullTranscript);
           transcriptRef.current = fullTranscript;
           setCurrentTranscript(fullTranscript);
         };
 
         recognition.onaudiostart = () => {
-          console.log('[STT] Audio started - microphone is capturing');
+          console.log('[STT] Audio started');
           setDebugStatus('マイクON');
         };
 
@@ -90,18 +90,18 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
         };
 
         recognition.onend = () => {
-          console.log('[STT] onend - manualStop:', manualStopRef.current, 'transcript:', transcriptRef.current);
-          setDebugStatus('終了: ' + (manualStopRef.current ? '送信' : 'キャンセル'));
+          console.log('[STT] onend - manualStop:', manualStopRef.current);
+          setDebugStatus('待機中');
           setIsListening(false);
 
-          // Only send if manually stopped and has content
-          if (manualStopRef.current && transcriptRef.current.trim()) {
-            console.log('[STT] Calling onFinalResult with:', transcriptRef.current.trim());
-            onFinalResultRef.current?.(transcriptRef.current.trim());
-          }
+          // NOTE: Do NOT clear transcriptRef here. 
+          // If auto-stop happens (network/silence), we want to keep the text 
+          // so stopAndSend() can still retrieve it when user releases button.
 
-          // Reset
-          transcriptRef.current = '';
+          // Only trigger onFinalResult if it was a manual stop controlled by logic
+          // (Actually, stopAndSend handles the sending callback directly, so we might not need this here at all
+          //  unless we want onend to trigger send for auto-stops?)
+          // Current logic: stopAndSend calls onFinalResult. onend does nothing but cleanup state.
           manualStopRef.current = false;
         };
 
