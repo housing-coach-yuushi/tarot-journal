@@ -100,17 +100,33 @@ export default function Home() {
       if (response.ok) {
         log('音声取得完了、再生準備...');
         const audioBlob = await response.blob();
+        if (audioBlob.size === 0) {
+          log('音声データが空です');
+          setIsSpeaking(false);
+          return;
+        }
+
         const audioUrl = URL.createObjectURL(audioBlob);
+
+        // Cleanup old URL
+        if (audioRef.current.src) {
+          URL.revokeObjectURL(audioRef.current.src);
+        }
 
         audioRef.current.src = audioUrl;
         audioRef.current.load(); // Ensure it's loaded
 
-        try {
-          await audioRef.current.play();
-          log('再生開始');
-        } catch (e) {
-          log('再生エラー(Play): ' + (e as Error).message);
-          setIsSpeaking(false);
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              log('再生開始');
+            })
+            .catch((e) => {
+              log('再生自動ブロック(Play): ' + (e as Error).message);
+              alert('音声を再生するには画面をタップしてください'); // Fallback for iOS
+              setIsSpeaking(false);
+            });
         }
       } else {
         log('音声取得エラー: ' + response.status);
