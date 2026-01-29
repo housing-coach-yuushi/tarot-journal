@@ -29,6 +29,7 @@ export interface AIIdentity {
     personality: string;
     speakingStyle: string;
     emoji: string;
+    voiceId?: string;  // ElevenLabs voice ID
     createdAt: string;
     updatedAt: string;
 }

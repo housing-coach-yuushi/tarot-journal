@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getKieApiClient } from '@/lib/keiapi/client';
+import { loadIdentity } from '@/lib/clawdbot/bootstrap';
+import { DEFAULT_VOICE_ID } from '@/lib/tts/voices';
 
 export async function POST(request: NextRequest) {
     try {
-        const { text } = await request.json();
+        const { text, voiceId: requestVoiceId } = await request.json();
 
         if (!text) {
             return NextResponse.json(
@@ -12,10 +14,17 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Get voice ID from request, AI identity, or use default
+        let voiceId = requestVoiceId;
+        if (!voiceId) {
+            const identity = await loadIdentity();
+            voiceId = identity?.voiceId || DEFAULT_VOICE_ID;
+        }
+
         const client = getKieApiClient();
 
-        // Get audio URL from Kie.ai TTS
-        const audioUrl = await client.textToSpeech(text);
+        // Get audio URL from Kie.ai TTS with the selected voice
+        const audioUrl = await client.textToSpeech(text, voiceId);
 
         // Fetch the audio file
         const audioResponse = await fetch(audioUrl);

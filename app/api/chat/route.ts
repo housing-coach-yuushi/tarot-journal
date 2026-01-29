@@ -13,6 +13,7 @@ import {
 } from '@/lib/clawdbot/bootstrap';
 import { addToConversationHistory, getConversationHistory } from '@/lib/db/redis';
 import { addMessage } from '@/lib/journal/storage';
+import { getVoiceIdByName, DEFAULT_VOICE_ID } from '@/lib/tts/voices';
 
 export async function POST(request: NextRequest) {
     try {
@@ -73,6 +74,43 @@ export async function POST(request: NextRequest) {
         // Call Kie.ai API
         const client = getKieApiClient();
         let response = await client.chat(messages);
+
+        // Parse identity_data block if present (for AI bootstrap)
+        const identityDataMatch = response.match(/```identity_data\n([\s\S]*?)```/);
+        if (identityDataMatch) {
+            const identityData: { name?: string; creature?: string; vibe?: string; emoji?: string; voiceId?: string } = {};
+            const lines = identityDataMatch[1].split('\n');
+            for (const line of lines) {
+                const [key, ...valueParts] = line.split(':');
+                const value = valueParts.join(':').trim();
+                if (key.trim() === 'name' && value) {
+                    identityData.name = value;
+                }
+                if (key.trim() === 'creature' && value) {
+                    identityData.creature = value;
+                }
+                if (key.trim() === 'vibe' && value) {
+                    identityData.vibe = value;
+                }
+                if (key.trim() === 'emoji' && value) {
+                    identityData.emoji = value;
+                }
+                if (key.trim() === 'voice' && value) {
+                    // Convert voice name to voice ID
+                    const voiceId = getVoiceIdByName(value);
+                    identityData.voiceId = voiceId || DEFAULT_VOICE_ID;
+                }
+            }
+
+            // Save identity data if we got a name
+            if (identityData.name) {
+                await saveIdentity(identityData);
+                console.log('Saved AI identity:', identityData);
+            }
+
+            // Remove the identity_data block from the response
+            response = response.replace(/```identity_data\n[\s\S]*?```/g, '').trim();
+        }
 
         // Parse user_data block if present (for onboarding)
         const userDataMatch = response.match(/```user_data\n([\s\S]*?)```/);

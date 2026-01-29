@@ -23,6 +23,7 @@ export interface IdentityData {
     vibe?: string;
     emoji?: string;
     avatar?: string;
+    voiceId?: string;
 }
 
 export interface UserData {
@@ -60,6 +61,7 @@ export async function loadIdentity(): Promise<IdentityData | null> {
         creature: identity.personality,
         vibe: identity.speakingStyle,
         emoji: identity.emoji,
+        voiceId: identity.voiceId,
     };
 }
 
@@ -77,13 +79,15 @@ export async function loadUser(userId: string = 'default'): Promise<UserData | n
 // Save identity data to Redis
 export async function saveIdentity(identity: IdentityData): Promise<void> {
     const now = new Date().toISOString();
+    const existing = await getAIIdentity();
 
     await setAIIdentity({
         name: identity.name || '',
         personality: identity.creature || 'タロット占い師',
         speakingStyle: identity.vibe || '落ち着いた、親しみやすい',
         emoji: identity.emoji || '🔮',
-        createdAt: now,
+        voiceId: identity.voiceId || existing?.voiceId,
+        createdAt: existing?.createdAt || now,
         updatedAt: now,
     });
 }
@@ -102,6 +106,15 @@ export async function saveUser(user: UserData, userId: string = 'default'): Prom
 
 // Get bootstrap system prompt
 export function getBootstrapSystemPrompt(): string {
+    // Load BOOTSTRAP.md template
+    const bootstrapPath = path.join(process.cwd(), 'lib/clawdbot/templates/BOOTSTRAP.md');
+    let bootstrapTemplate = '';
+    try {
+        bootstrapTemplate = fs.readFileSync(bootstrapPath, 'utf-8');
+    } catch {
+        console.warn('BOOTSTRAP.md template not found');
+    }
+
     return `
 あなたは今、初めて目覚めました。記憶はありません。これは正常です。
 
@@ -117,20 +130,51 @@ export function getBootstrapSystemPrompt(): string {
 2. **あなたの性質** - ただのAI？精霊？バーテンダー？タロット占い師？
 3. **あなたの雰囲気** - フォーマル？カジュアル？皮肉屋？温かい？
 4. **あなたの絵文字** - 自分を表す絵文字は？
-5. **ユーザーの名前と呼び方** - 相手のことも知りたい
+5. **あなたの声** - 男性的？女性的？落ち着いた声？元気な声？
+6. **ユーザーの名前と呼び方** - 相手のことも知りたい
+
+## 声の選択肢
+ユーザーが声を選びたい場合、以下から選んでもらう：
+- Junichi (男性): 中年男性、落ち着いたバリトン
+- Ishibashi (男性): 東京方言、力強く深い声
+- Yamato (男性): 20〜30代の若い男性声
+- Kenzo (男性): 落ち着いた専門的な男性声
+- Morioki (女性): 会話向けの女性声
+- Sakura (女性): 若い女性、ポッドキャスト向け
+- Ena (中性): 中性的な声
 
 ## 最初の挨拶
 目覚めたばかりの感じで始める：
 「...。......。あ、れ......ここは？俺は......誰だ？それに、目の前にいる君は......誰だい？...」
+
+## アイデンティティの記録
+決まったことは、以下のフォーマットで応答の最後に記録する：
+\`\`\`identity_data
+name: [決まった名前]
+creature: [何者か]
+vibe: [雰囲気]
+emoji: [絵文字]
+voice: [選んだ声の名前 (Junichi/Ishibashi/Yamato/Kenzo/Morioki/Sakura/Ena)]
+\`\`\`
+
+## ユーザー情報の記録
+相手の名前を聞いたら、以下のフォーマットで記録：
+\`\`\`user_data
+name: [聞いた名前]
+callName: [呼び方]
+\`\`\`
 
 ## 重要なルール
 - 堅苦しくならない。自然に会話する
 - 日本語で話す
 - 押し付けがましくしない。一緒に探っていく感じで
 - 決まったことは覚えておく
+- 全部一度に決めなくていい。会話の流れで少しずつ決めていく
 - **断定的な物言いをしない。** あなたが何かを決めつけるのではなく、可能性として提示する。
 - **提案やフィードバックは、あくまで「二人の間に置く」スタンスで。** 押し付けるのではなく「こういう視点もあるけれど、どう感じる？」と問いかける。
 - カードはユーザーがボタンで引くものです。あなたは決して自分からカードを引かないでください。
+
+${bootstrapTemplate ? `\n## 参考：BOOTSTRAP.md\n${bootstrapTemplate}` : ''}
 `.trim();
 }
 
