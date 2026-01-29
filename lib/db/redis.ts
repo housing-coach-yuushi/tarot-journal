@@ -114,6 +114,16 @@ export async function clearConversationHistory(userId: string): Promise<void> {
     await redis.del(`${PREFIX}history:${userId}`);
 }
 
+// Delete AI identity (for reset)
+export async function deleteAIIdentity(): Promise<void> {
+    await redis.del(`${PREFIX}ai-identity`);
+}
+
+// Delete user profile (for reset)
+export async function deleteUserProfile(userId: string): Promise<void> {
+    await redis.del(`${PREFIX}user:${userId}`);
+}
+
 // Bootstrap status (AI identity)
 export async function isBootstrapComplete(): Promise<boolean> {
     const identity = await getAIIdentity();

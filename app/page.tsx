@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download } from 'lucide-react';
+import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings } from 'lucide-react';
 import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
 import TarotCardComponent from '@/components/TarotCard';
@@ -60,6 +60,8 @@ export default function Home() {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('default');
+  const [showSettings, setShowSettings] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -424,6 +426,44 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
     }
   }, [messages, isSummarizing]);
 
+  // Reset function
+  const handleReset = useCallback(async (resetType: 'all' | 'ai' | 'user') => {
+    const confirmMessage = resetType === 'all'
+      ? '全てリセットして目覚めの儀式からやり直しますか？'
+      : resetType === 'ai'
+        ? 'AIのアイデンティティをリセットしますか？'
+        : 'あなたのプロファイルをリセットしますか？';
+
+    if (!confirm(confirmMessage)) return;
+
+    setIsResetting(true);
+    log(`リセット開始: ${resetType}`);
+
+    try {
+      const response = await fetch('/api/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, resetType }),
+      });
+
+      if (response.ok) {
+        log('リセット完了');
+        // Clear local state and reload
+        setMessages([]);
+        setBootstrap({ isBootstrapped: false });
+        setShowSettings(false);
+        // Reload page to start fresh
+        window.location.reload();
+      } else {
+        log('リセット失敗');
+      }
+    } catch (error) {
+      log('リセットエラー: ' + (error as Error).message);
+    } finally {
+      setIsResetting(false);
+    }
+  }, [userId, log]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     sendMessage(input);
@@ -526,15 +566,90 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         </div>
 
         {/* Right: Actions */}
-        <div className="flex-1 flex justify-end items-center">
+        <div className="flex-1 flex justify-end items-center gap-1">
           <button
             onClick={() => setShowChat(prev => !prev)}
             className="p-2 text-white/50 hover:text-white transition-colors"
           >
             {showChat ? <ChevronDown size={22} /> : <MessageSquare size={22} />}
           </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="p-2 text-white/50 hover:text-white transition-colors"
+          >
+            <Settings size={20} />
+          </button>
         </div>
       </div>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4"
+            onClick={() => setShowSettings(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white/10 backdrop-blur-md rounded-2xl p-6 max-w-sm w-full border border-white/20"
+            >
+              <h2 className="text-lg font-medium text-white mb-4">設定</h2>
+
+              {/* Current Identity Info */}
+              {bootstrap.identity?.name && (
+                <div className="mb-6 p-3 bg-white/5 rounded-lg">
+                  <p className="text-white/60 text-xs mb-1">現在のAI</p>
+                  <p className="text-white">
+                    {bootstrap.identity.emoji} {bootstrap.identity.name}
+                  </p>
+                  <p className="text-white/50 text-sm">{bootstrap.identity.creature}</p>
+                </div>
+              )}
+
+              {/* Reset Options */}
+              <div className="space-y-3">
+                <button
+                  onClick={() => handleReset('all')}
+                  disabled={isResetting}
+                  className="w-full flex items-center gap-3 p-3 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-red-300 transition-colors disabled:opacity-50"
+                >
+                  <RotateCcw size={18} />
+                  <div className="text-left">
+                    <p className="font-medium">目覚めの儀式からやり直す</p>
+                    <p className="text-xs text-red-300/60">AIとユーザー情報を全てリセット</p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleReset('user')}
+                  disabled={isResetting}
+                  className="w-full flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/80 transition-colors disabled:opacity-50"
+                >
+                  <RotateCcw size={18} />
+                  <div className="text-left">
+                    <p className="font-medium">自分の情報をリセット</p>
+                    <p className="text-xs text-white/40">名前と会話履歴をリセット</p>
+                  </div>
+                </button>
+              </div>
+
+              {/* Close Button */}
+              <button
+                onClick={() => setShowSettings(false)}
+                className="w-full mt-6 p-3 bg-white/10 hover:bg-white/20 rounded-lg text-white/80 transition-colors"
+              >
+                閉じる
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Chat Area */}
       <AnimatePresence>
