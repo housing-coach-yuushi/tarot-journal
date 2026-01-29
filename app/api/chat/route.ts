@@ -89,18 +89,26 @@ export async function POST(request: NextRequest) {
 
 // GET endpoint to check bootstrap status and get conversation history
 export async function GET(request: NextRequest) {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId') || 'default';
+    try {
+        const { searchParams } = new URL(request.url);
+        const userId = searchParams.get('userId') || 'default';
 
-    const isBootstrapped = await isBootstrapComplete();
-    const identity = await loadIdentity();
-    const user = await loadUser(userId);
-    const history = await getConversationHistory(userId, 20);
+        const isBootstrapped = await isBootstrapComplete();
+        const identity = await loadIdentity();
+        const user = await loadUser(userId);
+        const history = await getConversationHistory(userId, 20);
 
-    return NextResponse.json({
-        isBootstrapped,
-        identity,
-        user,
-        history: history.messages,
-    });
+        return NextResponse.json({
+            isBootstrapped,
+            identity,
+            user,
+            history: history.messages,
+        });
+    } catch (error) {
+        console.error('Chat API GET Error:', error);
+        return NextResponse.json(
+            { error: `Failed to load chat state: ${error instanceof Error ? error.message : 'Unknown error'}` },
+            { status: 500 }
+        );
+    }
 }
