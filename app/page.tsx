@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, X, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Sparkles, Loader2, Download } from 'lucide-react';
+import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download } from 'lucide-react';
 import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
 import TarotCardComponent from '@/components/TarotCard';
@@ -64,7 +64,6 @@ export default function Home() {
     debugStatus,
     startListening,
     stopAndSend,
-    cancel: cancelListening,
   } = useSpeechRecognition({
     lang: 'ja-JP',
     onFinalResult: (text) => {
@@ -701,20 +700,6 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                       exit={{ opacity: 0, scale: 0.8 }}
                       className="absolute inset-0 rounded-full bg-red-400 blur-lg"
                     />
-
-                    {/* Cancel Button - Absolute position so it doesn't shift the layout */}
-                    <motion.button
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -10 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        cancelListening();
-                      }}
-                      className="absolute -right-16 top-1/2 -translate-y-1/2 p-4 rounded-full bg-white/10 text-white/70 hover:bg-white/20 transition-colors z-20"
-                    >
-                      <X size={20} />
-                    </motion.button>
                   </>
                 )}
               </AnimatePresence>
