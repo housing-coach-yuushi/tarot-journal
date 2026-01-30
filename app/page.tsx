@@ -62,6 +62,8 @@ export default function Home() {
   const [userId, setUserId] = useState<string>('default');
   const [showSettings, setShowSettings] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [checkinLines, setCheckinLines] = useState<string[] | null>(null);
+  const [showTapHint, setShowTapHint] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -69,6 +71,13 @@ export default function Home() {
   useEffect(() => {
     setUserId(getUserId());
   }, []);
+
+  // Show tap hint after checkin text has been visible for a moment
+  useEffect(() => {
+    if (!checkinLines) return;
+    const timer = setTimeout(() => setShowTapHint(true), 5000);
+    return () => clearTimeout(timer);
+  }, [checkinLines]);
 
   // Debug logger
   const log = useCallback((msg: string) => {
@@ -200,15 +209,26 @@ export default function Home() {
         const currentUserId = getUserId();
         setUserId(currentUserId);
 
-        // Fetch status and initial message in parallel
-        const [statusRes, chatRes] = await Promise.all([
+        // Fetch status, initial message, and checkin in parallel
+        const [statusRes, chatRes, checkinRes] = await Promise.all([
           fetchWithTimeout(`/api/chat?userId=${currentUserId}`),
           fetchWithTimeout('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ history: [], userId: currentUserId }),
           }),
+          fetchWithTimeout(`/api/checkin?userId=${currentUserId}`).catch(() => null),
         ]);
+
+        // Apply checkin text as soon as available
+        if (checkinRes?.ok) {
+          try {
+            const checkinData = await checkinRes.json();
+            setCheckinLines(checkinData.lines);
+          } catch {
+            // fallback handled by default state
+          }
+        }
 
         const status = await statusRes.json();
         let messageText = '';
@@ -249,7 +269,7 @@ export default function Home() {
         // Store prepared data
         initDataRef.current = { message: messageText, audioUrl, status };
         setIsReady(true);
-        log('準備完了 → タップ待ち');
+        log('バックグラウンド準備完了');
       } catch (error) {
         log('初期化エラー: ' + (error as Error).message);
         // Even on error, let user tap to proceed
@@ -265,6 +285,10 @@ export default function Home() {
 
   // Tap-to-start handler: unlock audio + show chat + play voice
   const handleTapToStart = useCallback(async () => {
+    // Prevent double-tap
+    if (!isLoading) return;
+    setIsLoading(false);
+
     // Unlock audio context with user gesture
     if (audioRef.current) {
       try {
@@ -278,6 +302,8 @@ export default function Home() {
 
     const data = initDataRef.current;
     if (data) {
+      // Data is already ready - apply immediately
+      initDataRef.current = null; // consume
       setBootstrap(data.status);
 
       if (data.message) {
@@ -303,10 +329,44 @@ export default function Home() {
           setIsSpeaking(false);
         }
       }
+    } else {
+      // Data not ready yet - show chat and wait for background to finish
+      log('データ準備中のままタップ。バックグラウンド完了待ち...');
     }
+  }, [isLoading, log]);
 
-    setIsLoading(false);
-  }, [log]);
+  // When background prep finishes after user already tapped, apply data
+  useEffect(() => {
+    if (isReady && !isLoading && initDataRef.current) {
+      const data = initDataRef.current;
+      initDataRef.current = null; // consume once
+
+      setBootstrap(data.status);
+
+      if (data.message) {
+        setMessages(prev => {
+          // Don't add if already has messages
+          if (prev.length > 0) return prev;
+          return [{
+            id: 'initial-' + Date.now(),
+            role: 'assistant' as const,
+            content: data.message,
+            timestamp: new Date(),
+          }];
+        });
+      }
+
+      // Play audio if unlocked
+      if (data.audioUrl && audioRef.current && audioUnlocked) {
+        audioRef.current.src = data.audioUrl;
+        audioRef.current.load();
+        setIsSpeaking(true);
+        audioRef.current.play()
+          .then(() => log('遅延再生開始'))
+          .catch(() => setIsSpeaking(false));
+      }
+    }
+  }, [isReady, isLoading, audioUnlocked, log]);
 
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
@@ -500,42 +560,74 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
 
   return (
     <main className="fixed inset-0 bg-black text-white overflow-hidden flex flex-col">
-      {/* Loading / Tap-to-Start Overlay */}
+      {/* Tap-to-Start Overlay */}
       <AnimatePresence>
         {isLoading && (
           <motion.div
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center"
-            onClick={isReady ? handleTapToStart : undefined}
+            className="fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center cursor-pointer"
+            onClick={handleTapToStart}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              handleTapToStart();
+            }}
           >
-            {!isReady ? (
-              <motion.div
-                animate={{ opacity: [0.3, 1, 0.3] }}
-                transition={{ repeat: Infinity, duration: 2 }}
-                className="text-white/70 font-light tracking-widest text-lg"
-              >
-                準備中...
-              </motion.div>
-            ) : (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center gap-4 cursor-pointer select-none"
-              >
-                <motion.div
-                  animate={{ scale: [1, 1.05, 1] }}
-                  transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
-                  className="w-20 h-20 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center"
-                >
-                  <Volume2 size={32} className="text-white/80" />
-                </motion.div>
-                <p className="text-white/80 font-light tracking-widest text-lg">
-                  タップして開始
-                </p>
-              </motion.div>
-            )}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="flex flex-col items-center gap-8 select-none pointer-events-none px-8 max-w-sm"
+            >
+              {/* Checkin words */}
+              <AnimatePresence mode="wait">
+                {checkinLines ? (
+                  <motion.div
+                    key="checkin"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.8, ease: 'easeOut' }}
+                    className="flex flex-col items-center gap-2 text-center"
+                  >
+                    {checkinLines.map((line, i) => (
+                      <p
+                        key={i}
+                        className={
+                          i === checkinLines.length - 1
+                            ? 'text-white/90 font-light text-lg leading-relaxed tracking-wider'
+                            : 'text-white/60 font-light text-base leading-relaxed tracking-wide'
+                        }
+                      >
+                        {line}
+                      </p>
+                    ))}
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="loading"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="h-16"
+                  />
+                )}
+              </AnimatePresence>
+
+              {/* Tap indicator - delayed after checkin */}
+              <AnimatePresence>
+                {showTapHint && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: [0.3, 0.7, 0.3] }}
+                    transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                  >
+                    <p className="text-white/50 font-light tracking-widest text-sm">
+                      タップして始める
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
