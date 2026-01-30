@@ -309,18 +309,23 @@ export default function Home() {
         setMessages([initialMsg]);
         log(`初期メッセージをセットしました: ${data.message.substring(0, 20)}...`);
 
-        // Play pre-fetched audio immediately
+        // Play pre-fetched audio immediately if available
         if (data.audioUrl && audioRef.current) {
           audioRef.current.src = data.audioUrl;
           audioRef.current.load();
           setIsSpeaking(true);
+          setIsGeneratingAudio(false);
           try {
             await audioRef.current.play();
-            log('初期音声再生開始');
+            log('初期音声(プリフェッチ)再生開始');
           } catch (e) {
-            log('音声再生失敗: ' + (e as Error).message);
+            log('初期音声再生失敗: ' + (e as Error).message);
             setIsSpeaking(false);
           }
+        } else if (data.message && ttsEnabled) {
+          // Fallback: Message present but audio failed to pre-fetch
+          log('初期音声プリフェッチなし。手動再生を試みます...');
+          playTTS(data.message);
         }
       } else {
         log('初期メッセージがdata.messageにありません');
@@ -360,13 +365,17 @@ export default function Home() {
           audioRef.current.src = data.audioUrl;
           audioRef.current.load();
           setIsSpeaking(true);
+          setIsGeneratingAudio(false);
           audioRef.current.play()
-            .then(() => log('遅延再生開始'))
+            .then(() => log('遅延プリフェッチ音声再生開始'))
             .catch(() => setIsSpeaking(false));
+        } else if (data.message && audioUnlocked && ttsEnabled) {
+          log('遅延初期音声の手動再生を試みます...');
+          playTTS(data.message);
         }
       }
     }
-  }, [isReady, isLoading, audioUnlocked, log]);
+  }, [isReady, isLoading, audioUnlocked, log, ttsEnabled, playTTS]);
 
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
