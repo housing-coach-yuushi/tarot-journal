@@ -209,26 +209,25 @@ export default function Home() {
         const currentUserId = getUserId();
         setUserId(currentUserId);
 
-        // Fetch status, initial message, and checkin in parallel
-        const [statusRes, chatRes, checkinRes] = await Promise.all([
+        // Fetch checkin independently so it shows immediately
+        fetchWithTimeout(`/api/checkin?userId=${currentUserId}`)
+          .then(async (res) => {
+            if (res.ok) {
+              const data = await res.json();
+              setCheckinLines(data.lines);
+            }
+          })
+          .catch(() => {});
+
+        // Fetch status and initial message in parallel
+        const [statusRes, chatRes] = await Promise.all([
           fetchWithTimeout(`/api/chat?userId=${currentUserId}`),
           fetchWithTimeout('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ history: [], userId: currentUserId }),
           }),
-          fetchWithTimeout(`/api/checkin?userId=${currentUserId}`).catch(() => null),
         ]);
-
-        // Apply checkin text as soon as available
-        if (checkinRes?.ok) {
-          try {
-            const checkinData = await checkinRes.json();
-            setCheckinLines(checkinData.lines);
-          } catch {
-            // fallback handled by default state
-          }
-        }
 
         const status = await statusRes.json();
         let messageText = '';
