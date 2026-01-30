@@ -66,6 +66,7 @@ export default function Home() {
   const [showTapHint, setShowTapHint] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
 
   // Debug logger
   const log = useCallback((msg: string) => {
@@ -124,6 +125,7 @@ export default function Home() {
 
     log('音声生成開始...');
     setIsGeneratingAudio(true);
+    const currentVersion = ++ttsVersionRef.current;
 
     try {
       const response = await fetch('/api/tts', {
@@ -132,17 +134,26 @@ export default function Home() {
         body: JSON.stringify({ text }),
       });
 
+      if (currentVersion !== ttsVersionRef.current) {
+        log('TTSリクエストがキャンセルされました(新リクエストあり)');
+        return;
+      }
+
       if (response.ok) {
         const audioBlob = await response.blob();
+        if (currentVersion !== ttsVersionRef.current) return;
+
         if (audioBlob.size > 0) {
           log(`音声受信: ${audioBlob.size} bytes`);
           const url = URL.createObjectURL(audioBlob);
-          audioRef.current.src = url;
-          audioRef.current.load();
-          setIsSpeaking(true);
-          setIsGeneratingAudio(false);
-          await audioRef.current.play();
-          log('音声再生開始');
+          if (audioRef.current) {
+            audioRef.current.src = url;
+            audioRef.current.load();
+            setIsSpeaking(true);
+            setIsGeneratingAudio(false);
+            await audioRef.current.play();
+            log('音声再生開始');
+          }
         }
       } else {
         log('TTSエラー: ' + response.status);
@@ -157,6 +168,7 @@ export default function Home() {
   // Stop TTS
   const stopTTS = useCallback(() => {
     log('音声停止');
+    ttsVersionRef.current++; // Invalidate any pending TTS fetches
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -283,13 +295,19 @@ export default function Home() {
     if (!isLoading) return;
     setIsLoading(false);
 
-    // Unlock audio context with user gesture
+    // Unlock audio context with user gesture + small silent source
     if (audioRef.current) {
       try {
-        await audioRef.current.play().catch(() => { });
+        log('オーディオアンロック試行...');
+        audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+        audioRef.current.load();
+        await audioRef.current.play();
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
-      } catch { }
+        audioRef.current.src = '';
+      } catch (e) {
+        log('アンロック失敗: ' + (e as Error).message);
+      }
     }
     setAudioUnlocked(true);
     log('オーディオアンロック完了');
@@ -383,7 +401,11 @@ export default function Home() {
 
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
-    if (!text.trim() || isSending) return;
+    if (!text.trim()) return;
+    if (isSending && showInChat) {
+      log('送信中につきメッセージをスキップしました(チャット表示あり)');
+      return;
+    }
 
     log(`メッセージ送信開始: ${text.substring(0, 10)}...`);
     setIsSending(true);
