@@ -81,7 +81,7 @@ export default function Home() {
 
   // Split text into Japanese sentences
   const splitIntoChunks = useCallback((text: string): string[] => {
-    // Split by punctuation and keep it, then filter empty ones
+    // Split by punctuation but keep the punctuation and handle leading decorations
     const parts = text.split(/([。！？\n]+)/);
     const chunks: string[] = [];
     for (let i = 0; i < parts.length; i += 2) {
@@ -90,7 +90,8 @@ export default function Home() {
       const combined = (sentence + punctuation).trim();
       if (combined) chunks.push(combined);
     }
-    return chunks;
+    // Final safety check: if everything was filtered (shouldn't happen with .trim()), return original
+    return chunks.length > 0 ? chunks : [text];
   }, []);
 
   // Fetch and play a specific chunk
@@ -402,12 +403,20 @@ export default function Home() {
         // Start playing through the queue system
         log('初期音声をキューにセット');
         const version = ++queueVersionRef.current;
-        const chunks = splitIntoChunks(data.message);
+
+        // If we have a single pre-fetched audioUrl, we MUST treat the entire message as ONE chunk
+        // to avoid mismatch between multiple sentences and a single audio file.
+        let chunks: string[];
+        if (data.audioUrl) {
+          chunks = [data.message];
+        } else {
+          chunks = splitIntoChunks(data.message);
+        }
+
         audioQueueRef.current = chunks;
         audioUrlsRef.current = new Array(chunks.length).fill(null);
 
-        // If we have a single chunk and a pre-fetched URL, use it
-        if (chunks.length === 1 && data.audioUrl) {
+        if (data.audioUrl) {
           audioUrlsRef.current[0] = data.audioUrl;
         }
 
@@ -444,11 +453,18 @@ export default function Home() {
         if (audioUnlocked) {
           log('遅延初期音声をキューにセット');
           const version = ++queueVersionRef.current;
-          const chunks = splitIntoChunks(data.message);
+
+          let chunks: string[];
+          if (data.audioUrl) {
+            chunks = [data.message];
+          } else {
+            chunks = splitIntoChunks(data.message);
+          }
+
           audioQueueRef.current = chunks;
           audioUrlsRef.current = new Array(chunks.length).fill(null);
 
-          if (chunks.length === 1 && data.audioUrl) {
+          if (data.audioUrl) {
             audioUrlsRef.current[0] = data.audioUrl;
           }
 
