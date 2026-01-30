@@ -74,116 +74,7 @@ export default function Home() {
     console.log(fullMsg);
     setDebugLog(prev => [...prev.slice(-20), fullMsg]);
   }, []);
-  const audioQueueRef = useRef<string[]>([]);
-  const audioUrlsRef = useRef<(string | null)[]>([]);
-  const playIndexRef = useRef<number>(0);
-  const queueVersionRef = useRef<number>(0);
 
-  // Split text into Japanese sentences
-  const splitIntoChunks = useCallback((text: string): string[] => {
-    // Split by punctuation but keep the punctuation and handle leading decorations
-    const parts = text.split(/([。！？\n]+)/);
-    const chunks: string[] = [];
-    for (let i = 0; i < parts.length; i += 2) {
-      const sentence = parts[i];
-      const punctuation = parts[i + 1] || '';
-      const combined = (sentence + punctuation).trim();
-      if (combined) chunks.push(combined);
-    }
-    // Final safety check: if everything was filtered (shouldn't happen with .trim()), return original
-    return chunks.length > 0 ? chunks : [text];
-  }, []);
-
-  // Fetch and play a specific chunk
-  const fetchAndPlayChunk = useCallback(async (index: number, version: number) => {
-    if (version !== queueVersionRef.current || !ttsEnabled || !audioRef.current) return;
-    if (index >= audioQueueRef.current.length) return;
-
-    // If already fetching or fetched, don't repeat
-    if (audioUrlsRef.current[index] !== null) {
-      if (index === playIndexRef.current && !isSpeaking) {
-        playCurrentIndex(version);
-      }
-      return;
-    }
-
-    const text = audioQueueRef.current[index];
-    log(`チャンク ${index + 1}/${audioQueueRef.current.length} の取得開始: ${text.substring(0, 5)}...`);
-
-    try {
-      const response = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const audioBlob = await response.blob();
-      if (audioBlob.size === 0) throw new Error('Empty blob');
-
-      const url = URL.createObjectURL(audioBlob);
-
-      // check version again
-      if (version !== queueVersionRef.current) {
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      audioUrlsRef.current[index] = url;
-      log(`チャンク ${index + 1} の取得完了`);
-
-      // If this is the chunk we are supposed to play now, play it
-      if (index === playIndexRef.current && !isSpeaking) {
-        playCurrentIndex(version);
-      }
-
-      // Pre-fetch the next one
-      if (index + 1 < audioQueueRef.current.length) {
-        fetchAndPlayChunk(index + 1, version);
-      }
-    } catch (error) {
-      log(`チャンク ${index + 1} 取得エラー: ${error}`);
-      // Skip this chunk and move to next if it failed?
-      // For now, just allow next chunk to be tried
-      if (index === playIndexRef.current) {
-        moveToNextChunk(version);
-      }
-    }
-  }, [ttsEnabled, log]);
-
-  const playCurrentIndex = useCallback((version: number) => {
-    if (version !== queueVersionRef.current || !audioRef.current) return;
-    const index = playIndexRef.current;
-    const url = audioUrlsRef.current[index];
-
-    if (url) {
-      log(`再生開始: チャンク ${index + 1}`);
-      setIsGeneratingAudio(false);
-      setIsSpeaking(true);
-      audioRef.current.src = url;
-      audioRef.current.play().catch(e => {
-        log(`再生エラー: ${e.message}`);
-        moveToNextChunk(version);
-      });
-    } else {
-      // Waiting for fetch to complete
-      log(`待機中: チャンク ${index + 1}`);
-      setIsGeneratingAudio(true);
-    }
-  }, [log]);
-
-  const moveToNextChunk = useCallback((version: number) => {
-    if (version !== queueVersionRef.current) return;
-    playIndexRef.current++;
-    if (playIndexRef.current < audioQueueRef.current.length) {
-      playCurrentIndex(version);
-    } else {
-      log('全チャンクの再生完了');
-      setIsSpeaking(false);
-      setIsGeneratingAudio(false);
-    }
-  }, [playCurrentIndex, log]);
 
   // Initialize userId on client side
   useEffect(() => {
@@ -224,43 +115,55 @@ export default function Home() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Play TTS for a message (Chunked)
+  // Play TTS for a message (Full)
   const playTTS = useCallback(async (text: string) => {
     if (!ttsEnabled || !audioRef.current) {
       log('TTS無効またはAudioがありません');
       return;
     }
 
-    log('音声配信開始 (分割モード)');
-    const version = ++queueVersionRef.current;
+    log('音声生成開始...');
+    setIsGeneratingAudio(true);
 
-    // Cleanup URLs from previous queue
-    audioUrlsRef.current.forEach(u => u && URL.revokeObjectURL(u));
+    try {
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
 
-    const chunks = splitIntoChunks(text);
-    if (chunks.length === 0) return;
-
-    audioQueueRef.current = chunks;
-    audioUrlsRef.current = new Array(chunks.length).fill(null);
-    playIndexRef.current = 0;
-
-    // Start with the first chunk
-    fetchAndPlayChunk(0, version);
-  }, [ttsEnabled, log, splitIntoChunks, fetchAndPlayChunk]);
+      if (response.ok) {
+        const audioBlob = await response.blob();
+        if (audioBlob.size > 0) {
+          const url = URL.createObjectURL(audioBlob);
+          audioRef.current.src = url;
+          audioRef.current.load();
+          setIsSpeaking(true);
+          setIsGeneratingAudio(false);
+          await audioRef.current.play();
+          log('音声再生開始');
+        }
+      } else {
+        log('TTSエラー: ' + response.status);
+        setIsGeneratingAudio(false);
+      }
+    } catch (error) {
+      log('音声再生失敗: ' + (error as Error).message);
+      setIsGeneratingAudio(false);
+    }
+  }, [ttsEnabled, log]);
 
   // Stop TTS
   const stopTTS = useCallback(() => {
     log('音声停止');
-    const version = ++queueVersionRef.current; // Invalidate current fetchings
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audioRef.current.src);
+      }
       audioRef.current.src = '';
     }
-    // Cleanup URLs
-    audioUrlsRef.current.forEach(url => url && URL.revokeObjectURL(url));
-    audioUrlsRef.current = [];
-    audioQueueRef.current = [];
     setIsSpeaking(false);
     setIsGeneratingAudio(false);
   }, [log]);
@@ -400,34 +303,25 @@ export default function Home() {
         };
         setMessages([initialMsg]);
 
-        // Start playing through the queue system
-        log('初期音声をキューにセット');
-        const version = ++queueVersionRef.current;
-
-        // If we have a single pre-fetched audioUrl, we MUST treat the entire message as ONE chunk
-        // to avoid mismatch between multiple sentences and a single audio file.
-        let chunks: string[];
-        if (data.audioUrl) {
-          chunks = [data.message];
-        } else {
-          chunks = splitIntoChunks(data.message);
+        // Play pre-fetched audio immediately
+        if (data.audioUrl && audioRef.current) {
+          audioRef.current.src = data.audioUrl;
+          audioRef.current.load();
+          setIsSpeaking(true);
+          try {
+            await audioRef.current.play();
+            log('初期音声再生開始');
+          } catch (e) {
+            log('音声再生失敗: ' + (e as Error).message);
+            setIsSpeaking(false);
+          }
         }
-
-        audioQueueRef.current = chunks;
-        audioUrlsRef.current = new Array(chunks.length).fill(null);
-
-        if (data.audioUrl) {
-          audioUrlsRef.current[0] = data.audioUrl;
-        }
-
-        playIndexRef.current = 0;
-        fetchAndPlayChunk(0, version);
       }
     } else {
       // Data not ready yet - show chat and wait for background to finish
       log('データ準備中のままタップ。バックグラウンド完了待ち...');
     }
-  }, [isLoading, log, splitIntoChunks, fetchAndPlayChunk]);
+  }, [isLoading, log]);
 
   // When background prep finishes after user already tapped, apply data
   useEffect(() => {
@@ -449,31 +343,18 @@ export default function Home() {
           }];
         });
 
-        // Start playing through the queue system if unlocked
-        if (audioUnlocked) {
-          log('遅延初期音声をキューにセット');
-          const version = ++queueVersionRef.current;
-
-          let chunks: string[];
-          if (data.audioUrl) {
-            chunks = [data.message];
-          } else {
-            chunks = splitIntoChunks(data.message);
-          }
-
-          audioQueueRef.current = chunks;
-          audioUrlsRef.current = new Array(chunks.length).fill(null);
-
-          if (data.audioUrl) {
-            audioUrlsRef.current[0] = data.audioUrl;
-          }
-
-          playIndexRef.current = 0;
-          fetchAndPlayChunk(0, version);
+        // Play audio if unlocked
+        if (data.audioUrl && audioRef.current && audioUnlocked) {
+          audioRef.current.src = data.audioUrl;
+          audioRef.current.load();
+          setIsSpeaking(true);
+          audioRef.current.play()
+            .then(() => log('遅延再生開始'))
+            .catch(() => setIsSpeaking(false));
         }
       }
     }
-  }, [isReady, isLoading, audioUnlocked, log, splitIntoChunks, fetchAndPlayChunk]);
+  }, [isReady, isLoading, audioUnlocked, log]);
 
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
@@ -1169,8 +1050,8 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
       </div>
       <audio
         ref={audioRef}
-        onEnded={() => moveToNextChunk(queueVersionRef.current)}
-        onError={() => moveToNextChunk(queueVersionRef.current)}
+        onEnded={() => setIsSpeaking(false)}
+        onError={() => setIsSpeaking(false)}
         style={{ display: 'none' }}
       />
     </main>
