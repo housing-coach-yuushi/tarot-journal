@@ -236,6 +236,7 @@ export default function Home() {
           if (messageText && ttsEnabled) {
             try {
               log('音声プリフェッチ中...');
+              setIsGeneratingAudio(true); // Indicate audio is being generated even in background
               const ttsRes = await fetch('/api/tts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -248,8 +249,10 @@ export default function Home() {
                   log('音声プリフェッチ完了');
                 }
               }
+              setIsGeneratingAudio(false);
             } catch (e) {
               log('TTS準備失敗: ' + (e as Error).message);
+              setIsGeneratingAudio(false);
             }
           }
         }
@@ -320,8 +323,12 @@ export default function Home() {
     } else {
       // Data not ready yet - show chat and wait for background to finish
       log('データ準備中のままタップ。バックグラウンド完了待ち...');
+      // Ensure the generating indicator is visible if we are still preparing
+      if (isPreparing) {
+        setIsGeneratingAudio(true);
+      }
     }
-  }, [isLoading, log]);
+  }, [isLoading, log, isPreparing]);
 
   // When background prep finishes after user already tapped, apply data
   useEffect(() => {
