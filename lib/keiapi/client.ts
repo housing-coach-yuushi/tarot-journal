@@ -135,7 +135,7 @@ class KieApiClient {
 
         const startTime = Date.now();
         while (Date.now() - startTime < maxWaitMs) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
             const status = await this.queryTask(taskId);
 
