@@ -135,13 +135,15 @@ export function getBootstrapSystemPrompt(): string {
 
 ## 声の選択肢
 ユーザーが声を選びたい場合、以下から選んでもらう：
-- Junichi (男性): 中年男性、落ち着いたバリトン
-- Ishibashi (男性): 東京方言、力強く深い声
-- Yamato (男性): 20〜30代の若い男性声
-- Kenzo (男性): 落ち着いた専門的な男性声
-- Morioki (女性): 会話向けの女性声
-- Sakura (女性): 若い女性、ポッドキャスト向け
-- Ena (中性): 中性的な声
+- George (男性): 温かみのある男性声
+- Daniel (男性): 落ち着いた男性声
+- Charlie (男性): カジュアルな男性声
+- Callum (男性): 穏やかな男性声
+- Liam (男性): 若い男性声
+- Aria (女性): 表現力豊かな女性声
+- Sarah (女性): 柔らかい女性声
+- Charlotte (女性): 落ち着いた女性声
+- Lily (女性): 明るい女性声
 
 ## 最初の挨拶
 目覚めたばかりの感じで始める：
@@ -154,7 +156,7 @@ name: [決まった名前]
 creature: [何者か]
 vibe: [雰囲気]
 emoji: [絵文字]
-voice: [選んだ声の名前 (Junichi/Ishibashi/Yamato/Kenzo/Morioki/Sakura/Ena)]
+voice: [選んだ声の名前 (George/Aria/Sarah/Daniel/Lily 等)]
 \`\`\`
 
 ## ユーザー情報の記録

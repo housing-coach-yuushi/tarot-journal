@@ -151,13 +151,14 @@ class KieApiClient {
     }
 
     /**
-     * Text-to-Speech using ElevenLabs V3
+     * Text-to-Speech using ElevenLabs Turbo 2.5 (fast)
      */
-    async textToSpeech(text: string, voiceId: string = 'pNInz6obpgDQGcFmaJgB'): Promise<string> {
-        return this.createTaskAndWait('elevenlabs/text-to-dialogue-v3', {
+    async textToSpeech(text: string, voiceName: string = 'George'): Promise<string> {
+        return this.createTaskAndWait('elevenlabs/text-to-speech-turbo-2-5', {
+            text,
+            voice: voiceName,
             stability: 0.5,
             language_code: 'ja',
-            dialogue: [{ text, voice: voiceId }],
         });
     }
 }

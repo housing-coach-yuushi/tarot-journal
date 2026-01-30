@@ -58,13 +58,16 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId') || 'default';
 
+    // Use Tokyo timezone (JST) for all date/time calculations
     const now = new Date();
-    const hour = now.getHours();
+    const tokyoStr = now.toLocaleString('en-US', { timeZone: 'Asia/Tokyo' });
+    const tokyo = new Date(tokyoStr);
+    const hour = tokyo.getHours();
     const timeOfDay = hour >= 5 && hour < 12 ? '朝' : hour >= 12 && hour < 17 ? '昼' : hour >= 17 && hour < 21 ? '夕方' : '夜';
     const days = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
-    const dayOfWeek = days[now.getDay()];
-    const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
-    const month = now.getMonth() + 1;
+    const dayOfWeek = days[tokyo.getDay()];
+    const dateStr = `${tokyo.getFullYear()}年${tokyo.getMonth() + 1}月${tokyo.getDate()}日`;
+    const month = tokyo.getMonth() + 1;
     const seasons = ['冬', '冬', '春', '春', '春', '夏', '夏', '夏', '秋', '秋', '秋', '冬'];
     const season = seasons[month - 1];
 

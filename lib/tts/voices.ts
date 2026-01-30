@@ -1,5 +1,5 @@
 /**
- * Available Japanese TTS voices from ElevenLabs via Kie.ai
+ * Available TTS voices from ElevenLabs via Kie.ai (Turbo 2.5 compatible)
  */
 
 export interface VoiceOption {
@@ -10,92 +10,77 @@ export interface VoiceOption {
     age: 'young' | 'middle' | 'mature';
 }
 
-// Japanese voices from ElevenLabs (curated list)
+// Turbo 2.5 compatible voices (standard ElevenLabs voices)
 export const JAPANESE_VOICES: VoiceOption[] = [
     // Male voices
     {
-        id: 'wAWUBOIVEUw9IEUYoNzR',
-        name: 'Junichi',
+        id: 'George',
+        name: 'George',
         gender: 'male',
-        description: '中年男性、落ち着いたバリトン',
+        description: '温かみのある男性声',
         age: 'middle',
     },
     {
-        id: 'Mv8AjrYZCBkdsmDHNwcB',
-        name: 'Ishibashi',
+        id: 'Daniel',
+        name: 'Daniel',
         gender: 'male',
-        description: '東京方言、力強く深い声',
-        age: 'mature',
-    },
-    {
-        id: 'bqpOyYNUu11tjjvRUbKn',
-        name: 'Yamato',
-        gender: 'male',
-        description: '20〜30代の若い男性声',
-        age: 'young',
-    },
-    {
-        id: 'b34JylakFZPlGS0BnwyY',
-        name: 'Kenzo',
-        gender: 'male',
-        description: '落ち着いた専門的な男性声',
+        description: '落ち着いた男性声',
         age: 'middle',
     },
     {
-        id: '5enpi03fjGAwd9rnMfVT',
-        name: 'Noguchi',
+        id: 'Charlie',
+        name: 'Charlie',
         gender: 'male',
-        description: '若い男性、穏やかな声',
+        description: 'カジュアルな男性声',
         age: 'young',
     },
     {
-        id: 'GKDaBI8TKSBJVhsCLD6n',
-        name: 'Asahi',
+        id: 'Callum',
+        name: 'Callum',
         gender: 'male',
-        description: '若い男性、落ち着いた会話向け',
+        description: '穏やかな男性声',
         age: 'young',
     },
     {
-        id: 'LNzr3u01PIEDg0fRlvE7',
-        name: 'Ichiro',
+        id: 'Liam',
+        name: 'Liam',
         gender: 'male',
-        description: '若い男性、穏やかな声',
+        description: '若い男性声',
         age: 'young',
-    },
-    {
-        id: 'pNInz6obpgDQGcFmaJgB',
-        name: 'Adam',
-        gender: 'male',
-        description: 'デフォルト男性声（多言語対応）',
-        age: 'middle',
     },
     // Female voices
     {
-        id: '8EkOjt4xTPGMclNlh1pk',
-        name: 'Morioki',
+        id: 'Aria',
+        name: 'Aria',
         gender: 'female',
-        description: '会話向けの女性声',
+        description: '表現力豊かな女性声',
         age: 'young',
     },
     {
-        id: 'RBnMinrYKeccY3vaUxlZ',
-        name: 'Sakura',
+        id: 'Sarah',
+        name: 'Sarah',
         gender: 'female',
-        description: '若い女性、ポッドキャスト向け',
+        description: '柔らかい女性声',
         age: 'young',
     },
-    // Neutral
     {
-        id: '8kS8nwk1TQdxvQOmfTZA',
-        name: 'Ena',
-        gender: 'neutral',
-        description: '中性的な声',
+        id: 'Charlotte',
+        name: 'Charlotte',
+        gender: 'female',
+        description: '落ち着いた女性声',
+        age: 'middle',
+    },
+    {
+        id: 'Lily',
+        name: 'Lily',
+        gender: 'female',
+        description: '明るい女性声',
         age: 'young',
     },
 ];
 
-// Default voice for new AI (George's original voice)
-export const DEFAULT_VOICE_ID = 'pNInz6obpgDQGcFmaJgB'; // Adam
+// Default voice
+export const DEFAULT_VOICE_ID = 'George';
 
 /**
  * Get voice by ID

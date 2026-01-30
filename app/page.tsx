@@ -147,6 +147,7 @@ export default function Home() {
 
         audioRef.current.src = audioUrl;
         audioRef.current.load(); // Ensure it's loaded
+        setIsSpeaking(true);
 
         const playPromise = audioRef.current.play();
         if (playPromise !== undefined) {
@@ -217,7 +218,7 @@ export default function Home() {
               setCheckinLines(data.lines);
             }
           })
-          .catch(() => {});
+          .catch(() => { });
 
         // Fetch status and initial message in parallel
         const [statusRes, chatRes] = await Promise.all([
@@ -291,10 +292,10 @@ export default function Home() {
     // Unlock audio context with user gesture
     if (audioRef.current) {
       try {
-        await audioRef.current.play().catch(() => {});
+        await audioRef.current.play().catch(() => { });
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
-      } catch {}
+      } catch { }
     }
     setAudioUnlocked(true);
     log('オーディオアンロック完了');
@@ -605,40 +606,47 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                     className="flex flex-col items-center gap-6"
                   >
                     {/* Gemini-style organic orb */}
-                    <div className="relative w-24 h-24">
+                    <div className="relative w-32 h-32 flex items-center justify-center">
+                      {/* Significantly larger outer glows to prevent edge clipping */}
                       <motion.div
                         animate={{
-                          scale: [1, 1.15, 0.95, 1.1, 1],
-                          x: [0, 3, -2, 1, 0],
-                          y: [0, -2, 3, -1, 0],
+                          scale: [1, 1.2, 0.9, 1.1, 1],
+                          rotate: [0, 90, 180, 270, 360],
                         }}
-                        transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
-                        className="absolute inset-0 rounded-full bg-blue-500/30 blur-xl"
+                        transition={{ repeat: Infinity, duration: 8, ease: 'linear' }}
+                        className="absolute inset-[-40px] rounded-full bg-blue-500/20 blur-[40px]"
                       />
                       <motion.div
                         animate={{
-                          scale: [1, 0.9, 1.2, 0.95, 1],
-                          x: [0, -4, 2, -1, 0],
-                          y: [0, 2, -3, 2, 0],
+                          scale: [1, 0.8, 1.2, 0.9, 1],
+                          rotate: [360, 270, 180, 90, 0],
                         }}
-                        transition={{ repeat: Infinity, duration: 5, ease: 'easeInOut' }}
-                        className="absolute inset-1 rounded-full bg-purple-400/25 blur-lg"
+                        transition={{ repeat: Infinity, duration: 10, ease: 'linear' }}
+                        className="absolute inset-[-20px] rounded-full bg-purple-500/20 blur-[30px]"
                       />
                       <motion.div
                         animate={{
                           scale: [1, 1.1, 0.9, 1.05, 1],
-                          x: [0, 2, -3, 1, 0],
-                          y: [0, -1, 2, -2, 0],
                         }}
-                        transition={{ repeat: Infinity, duration: 3.5, ease: 'easeInOut' }}
-                        className="absolute inset-3 rounded-full bg-cyan-400/20 blur-md"
+                        transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
+                        className="absolute inset-2 rounded-full bg-cyan-400/30 blur-[20px]"
                       />
                       <motion.div
-                        animate={{ opacity: [0.4, 0.8, 0.4] }}
+                        animate={{
+                          opacity: [0.4, 0.8, 0.4],
+                          scale: [0.95, 1.05, 0.95],
+                        }}
                         transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
-                        className="absolute inset-6 rounded-full bg-white/15 blur-sm"
+                        className="absolute inset-6 rounded-full bg-white/20 blur-md shadow-[0_0_20px_rgba(255,255,255,0.3)]"
                       />
                     </div>
+                    <motion.p
+                      animate={{ opacity: [0.3, 0.7, 0.3] }}
+                      transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                      className="text-white/50 font-light text-sm tracking-[0.2em] mt-4"
+                    >
+                      目覚めています...
+                    </motion.p>
                   </motion.div>
                 )}
               </AnimatePresence>
