@@ -602,21 +602,43 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="flex flex-col items-center gap-4"
+                    className="flex flex-col items-center gap-6"
                   >
-                    {/* Breathing circle */}
-                    <motion.div
-                      animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
-                      transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
-                      className="w-16 h-16 rounded-full border border-white/20"
-                    />
-                    <motion.p
-                      animate={{ opacity: [0.3, 0.6, 0.3] }}
-                      transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
-                      className="text-white/40 font-light text-xs tracking-[0.3em]"
-                    >
-                      準備しています
-                    </motion.p>
+                    {/* Gemini-style organic orb */}
+                    <div className="relative w-24 h-24">
+                      <motion.div
+                        animate={{
+                          scale: [1, 1.15, 0.95, 1.1, 1],
+                          x: [0, 3, -2, 1, 0],
+                          y: [0, -2, 3, -1, 0],
+                        }}
+                        transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
+                        className="absolute inset-0 rounded-full bg-blue-500/30 blur-xl"
+                      />
+                      <motion.div
+                        animate={{
+                          scale: [1, 0.9, 1.2, 0.95, 1],
+                          x: [0, -4, 2, -1, 0],
+                          y: [0, 2, -3, 2, 0],
+                        }}
+                        transition={{ repeat: Infinity, duration: 5, ease: 'easeInOut' }}
+                        className="absolute inset-1 rounded-full bg-purple-400/25 blur-lg"
+                      />
+                      <motion.div
+                        animate={{
+                          scale: [1, 1.1, 0.9, 1.05, 1],
+                          x: [0, 2, -3, 1, 0],
+                          y: [0, -1, 2, -2, 0],
+                        }}
+                        transition={{ repeat: Infinity, duration: 3.5, ease: 'easeInOut' }}
+                        className="absolute inset-3 rounded-full bg-cyan-400/20 blur-md"
+                      />
+                      <motion.div
+                        animate={{ opacity: [0.4, 0.8, 0.4] }}
+                        transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                        className="absolute inset-6 rounded-full bg-white/15 blur-sm"
+                      />
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
