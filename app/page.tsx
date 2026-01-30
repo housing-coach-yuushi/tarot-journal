@@ -566,17 +566,12 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center cursor-pointer"
-            onClick={handleTapToStart}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              handleTapToStart();
-            }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center"
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center gap-8 select-none pointer-events-none px-8 max-w-sm"
+              className="flex flex-col items-center gap-8 select-none px-8 max-w-sm"
             >
               {/* Checkin words */}
               <AnimatePresence mode="wait">
@@ -607,23 +602,35 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="h-16"
-                  />
+                    className="text-white/40 font-light text-sm tracking-wide"
+                  >
+                    準備中...
+                  </motion.div>
                 )}
               </AnimatePresence>
 
-              {/* Tap indicator - delayed after checkin */}
+              {/* Tap button - delayed after checkin */}
               <AnimatePresence>
                 {showTapHint && (
-                  <motion.div
+                  <motion.button
                     initial={{ opacity: 0 }}
-                    animate={{ opacity: [0.3, 0.7, 0.3] }}
-                    transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.8 }}
+                    onClick={handleTapToStart}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      handleTapToStart();
+                    }}
+                    className="px-8 py-3 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 cursor-pointer active:bg-white/20 transition-colors"
                   >
-                    <p className="text-white/50 font-light tracking-widest text-sm">
+                    <motion.p
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                      className="text-white/70 font-light tracking-widest text-sm"
+                    >
                       タップして始める
-                    </p>
-                  </motion.div>
+                    </motion.p>
+                  </motion.button>
                 )}
               </AnimatePresence>
             </motion.div>
