@@ -48,6 +48,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isReady, setIsReady] = useState(false);  // バックグラウンド準備完了
   const [isSending, setIsSending] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);  // TTS準備中
   const [showChat, setShowChat] = useState(true);
@@ -58,7 +59,6 @@ export default function Home() {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
-  const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('default');
   const [showSettings, setShowSettings] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -148,8 +148,6 @@ export default function Home() {
             })
             .catch((e) => {
               log('再生自動ブロック(Play): ' + (e as Error).message);
-              // Save audio URL for later playback when user taps
-              setPendingAudioUrl(audioUrl);
               setIsSpeaking(false);
             });
         }
@@ -172,33 +170,17 @@ export default function Home() {
     setIsSpeaking(false);
   }, []);
 
-  // Play pending audio (after user interaction to unlock audio)
-  const playPendingAudio = useCallback(async () => {
-    if (!pendingAudioUrl || !audioRef.current) return;
 
-    try {
-      log('ペンディング音声再生...');
-      audioRef.current.src = pendingAudioUrl;
-      audioRef.current.load();
-      setIsSpeaking(true);
-      await audioRef.current.play();
-      log('ペンディング音声再生成功');
-      setAudioUnlocked(true);
-      setPendingAudioUrl(null);
-    } catch (e) {
-      log('ペンディング音声再生失敗: ' + (e as Error).message);
-      setIsSpeaking(false);
-    }
-  }, [pendingAudioUrl, log]);
+  // Ref to hold pre-fetched initial data for tap-to-start
+  const initDataRef = useRef<{ message: string; audioUrl: string | null; status: BootstrapState } | null>(null);
 
-  // Check bootstrap status and get initial message
+  // Background: fetch chat + TTS while showing "tap to start"
   useEffect(() => {
-    const initChat = async () => {
+    const prepareInBackground = async () => {
       try {
-        log('初期化開始...');
+        log('バックグラウンド準備開始...');
         setIsPreparing(true);
 
-        // Fetch bootstrap status and initial message in parallel with timeout
         const fetchWithTimeout = async (url: string, options?: RequestInit, timeout = 60000) => {
           const controller = new AbortController();
           const id = setTimeout(() => controller.abort(), timeout);
@@ -215,10 +197,10 @@ export default function Home() {
           }
         };
 
-        // Get userId for API calls
         const currentUserId = getUserId();
         setUserId(currentUserId);
 
+        // Fetch status and initial message in parallel
         const [statusRes, chatRes] = await Promise.all([
           fetchWithTimeout(`/api/chat?userId=${currentUserId}`),
           fetchWithTimeout('/api/chat', {
@@ -229,70 +211,102 @@ export default function Home() {
         ]);
 
         const status = await statusRes.json();
-        setBootstrap(status);
+        let messageText = '';
+        let audioUrl: string | null = null;
 
         if (chatRes.ok) {
           const data = await chatRes.json();
-          if (data.message) {
-            log('初期メッセージ取得成功');
-            // Set message
-            const initialMsg: Message = {
-              id: 'initial-' + Date.now(),
-              role: 'assistant',
-              content: data.message,
-              timestamp: new Date(),
-            };
-            setMessages([initialMsg]);
+          messageText = data.message || '';
+          if (data.identity || data.user) {
+            status.identity = data.identity;
+            status.user = data.user;
+            status.isBootstrapped = data.isBootstrapped;
+          }
+          log('初期メッセージ取得成功');
 
-            // Move to chat immediately so text is visible while audio fetches
-            setIsLoading(false);
-
-            // Pre-fetch TTS for initial message
-            if (ttsEnabled && audioRef.current) {
-              try {
-                log('初期音声取得中...');
-                const ttsResponse = await fetch('/api/tts', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ text: data.message }),
-                });
-
-                if (ttsResponse.ok) {
-                  const audioBlob = await ttsResponse.blob();
-                  const audioUrl = URL.createObjectURL(audioBlob);
-                  audioRef.current.src = audioUrl;
-                  audioRef.current.load();
-                  log('音声準備完了');
-
-                  // Try auto-play
-                  setIsSpeaking(true);
-                  await audioRef.current.play().then(() => {
-                    log('自動再生成功');
-                    setAudioUnlocked(true);
-                  }).catch((e) => {
-                    log('自動再生ブロック: ' + e.message);
-                    // Save audio URL for later playback when user taps
-                    setPendingAudioUrl(audioUrl);
-                    setIsSpeaking(false);
-                  });
+          // Pre-fetch TTS audio
+          if (messageText && ttsEnabled) {
+            try {
+              log('音声プリフェッチ中...');
+              const ttsRes = await fetch('/api/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: messageText }),
+              });
+              if (ttsRes.ok) {
+                const blob = await ttsRes.blob();
+                if (blob.size > 0) {
+                  audioUrl = URL.createObjectURL(blob);
+                  log('音声プリフェッチ完了');
                 }
-              } catch (ttsError) {
-                log('TTS準備失敗: ' + (ttsError as Error).message);
               }
+            } catch (e) {
+              log('TTS準備失敗: ' + (e as Error).message);
             }
           }
         }
+
+        // Store prepared data
+        initDataRef.current = { message: messageText, audioUrl, status };
+        setIsReady(true);
+        log('準備完了 → タップ待ち');
       } catch (error) {
         log('初期化エラー: ' + (error as Error).message);
+        // Even on error, let user tap to proceed
+        setIsReady(true);
       } finally {
-        setIsLoading(false);
         setIsPreparing(false);
       }
     };
 
-    initChat();
+    prepareInBackground();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Tap-to-start handler: unlock audio + show chat + play voice
+  const handleTapToStart = useCallback(async () => {
+    // Unlock audio context with user gesture
+    if (audioRef.current) {
+      try {
+        await audioRef.current.play().catch(() => {});
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch {}
+    }
+    setAudioUnlocked(true);
+    log('オーディオアンロック完了');
+
+    const data = initDataRef.current;
+    if (data) {
+      setBootstrap(data.status);
+
+      if (data.message) {
+        const initialMsg: Message = {
+          id: 'initial-' + Date.now(),
+          role: 'assistant',
+          content: data.message,
+          timestamp: new Date(),
+        };
+        setMessages([initialMsg]);
+      }
+
+      // Play pre-fetched audio immediately
+      if (data.audioUrl && audioRef.current) {
+        audioRef.current.src = data.audioUrl;
+        audioRef.current.load();
+        setIsSpeaking(true);
+        try {
+          await audioRef.current.play();
+          log('初期音声再生開始');
+        } catch (e) {
+          log('音声再生失敗: ' + (e as Error).message);
+          setIsSpeaking(false);
+        }
+      }
+    }
+
+    setIsLoading(false);
+  }, [log]);
 
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
@@ -486,45 +500,46 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
 
   return (
     <main className="fixed inset-0 bg-black text-white overflow-hidden flex flex-col">
-      {/* Loading Overlay */}
+      {/* Loading / Tap-to-Start Overlay */}
       <AnimatePresence>
         {isLoading && (
           <motion.div
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center pointer-events-none"
+            transition={{ duration: 0.5 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center"
+            onClick={isReady ? handleTapToStart : undefined}
           >
-            <motion.div
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ repeat: Infinity, duration: 2 }}
-              className="text-white/70 font-light tracking-widest text-lg"
-            >
-              目覚めています...
-            </motion.div>
+            {!isReady ? (
+              <motion.div
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ repeat: Infinity, duration: 2 }}
+                className="text-white/70 font-light tracking-widest text-lg"
+              >
+                準備中...
+              </motion.div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex flex-col items-center gap-4 cursor-pointer select-none"
+              >
+                <motion.div
+                  animate={{ scale: [1, 1.05, 1] }}
+                  transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                  className="w-20 h-20 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center"
+                >
+                  <Volume2 size={32} className="text-white/80" />
+                </motion.div>
+                <p className="text-white/80 font-light tracking-widest text-lg">
+                  タップして開始
+                </p>
+              </motion.div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Audio Unlock Prompt - Subtle tap indicator for Safari */}
-      <AnimatePresence>
-        {pendingAudioUrl && !isLoading && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed top-20 left-1/2 -translate-x-1/2 z-[90]"
-          >
-            <motion.button
-              onClick={playPendingAudio}
-              whileTap={{ scale: 0.95 }}
-              className="flex items-center gap-2 px-4 py-2 bg-white/15 backdrop-blur-md rounded-full border border-white/20 text-white/90 text-sm"
-            >
-              <Volume2 size={16} />
-              <span>タップして音声を再生</span>
-            </motion.button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Aurora Glow Effect */}
       <GlowVisualizer isActive={isListening || isSending || isSpeaking} />
