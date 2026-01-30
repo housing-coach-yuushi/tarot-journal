@@ -1075,6 +1075,17 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         onError={() => setIsSpeaking(false)}
         style={{ display: 'none' }}
       />
+
+      {/* Hidden Debug Overlay (Triggered by holding settings or just visible in dev) */}
+      {debugLog.length > 0 && (
+        <div className="fixed bottom-24 left-4 right-4 z-50 pointer-events-none">
+          <div className="max-w-md mx-auto bg-black/80 backdrop-blur-md rounded-lg p-2 border border-white/10 text-[10px] font-mono text-green-400 overflow-hidden opacity-50 hover:opacity-100 transition-opacity">
+            {debugLog.slice(-5).map((line, i) => (
+              <div key={i} className="truncate">{line}</div>
+            ))}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
