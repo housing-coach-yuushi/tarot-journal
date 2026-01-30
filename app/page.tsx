@@ -565,7 +565,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
           <motion.div
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: 0.3 }}
             className="fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center"
           >
             <motion.div
@@ -602,9 +602,21 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="text-white/40 font-light text-sm tracking-wide"
+                    className="flex flex-col items-center gap-4"
                   >
-                    準備中...
+                    {/* Breathing circle */}
+                    <motion.div
+                      animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
+                      transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                      className="w-16 h-16 rounded-full border border-white/20"
+                    />
+                    <motion.p
+                      animate={{ opacity: [0.3, 0.6, 0.3] }}
+                      transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                      className="text-white/40 font-light text-xs tracking-[0.3em]"
+                    >
+                      準備しています
+                    </motion.p>
                   </motion.div>
                 )}
               </AnimatePresence>
