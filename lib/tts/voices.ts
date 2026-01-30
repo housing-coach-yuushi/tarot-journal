@@ -14,35 +14,35 @@ export interface VoiceOption {
 export const JAPANESE_VOICES: VoiceOption[] = [
     // Male voices
     {
-        id: 'George',
+        id: 'JBFqnCBvURuLQ7tpZoro',
         name: 'George',
         gender: 'male',
         description: '温かみのある男性声',
         age: 'middle',
     },
     {
-        id: 'Daniel',
+        id: 'onw79q6M99uN7H3YqYy4',
         name: 'Daniel',
         gender: 'male',
         description: '落ち着いた男性声',
         age: 'middle',
     },
     {
-        id: 'Charlie',
+        id: 'IKne3meq5pSbhcnEsnGe',
         name: 'Charlie',
         gender: 'male',
         description: 'カジュアルな男性声',
         age: 'young',
     },
     {
-        id: 'Callum',
+        id: 'N2lVS1wzLe9qybdD6Gaj',
         name: 'Callum',
         gender: 'male',
         description: '穏やかな男性声',
         age: 'young',
     },
     {
-        id: 'Liam',
+        id: 'TX380097OofM4HREp3y3',
         name: 'Liam',
         gender: 'male',
         description: '若い男性声',
@@ -50,28 +50,28 @@ export const JAPANESE_VOICES: VoiceOption[] = [
     },
     // Female voices
     {
-        id: 'Aria',
+        id: '9BWts74D2G803CHClfkM',
         name: 'Aria',
         gender: 'female',
         description: '表現力豊かな女性声',
         age: 'young',
     },
     {
-        id: 'Sarah',
+        id: 'EXAVVmYWIigS90r0O5qH',
         name: 'Sarah',
         gender: 'female',
         description: '柔らかい女性声',
         age: 'young',
     },
     {
-        id: 'Charlotte',
+        id: 'cgSfsWEy7lMDi95EuSjn',
         name: 'Charlotte',
         gender: 'female',
         description: '落ち着いた女性声',
         age: 'middle',
     },
     {
-        id: 'Lily',
+        id: 'pFZP5JQG7iQjIQuC4Bku',
         name: 'Lily',
         gender: 'female',
         description: '明るい女性声',
@@ -79,8 +79,8 @@ export const JAPANESE_VOICES: VoiceOption[] = [
     },
 ];
 
-// Default voice
-export const DEFAULT_VOICE_ID = 'George';
+// Default voice (George GUID)
+export const DEFAULT_VOICE_ID = 'JBFqnCBvURuLQ7tpZoro';
 
 /**
  * Get voice by ID

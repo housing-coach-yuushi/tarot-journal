@@ -135,6 +135,7 @@ export default function Home() {
       if (response.ok) {
         const audioBlob = await response.blob();
         if (audioBlob.size > 0) {
+          log(`音声受信: ${audioBlob.size} bytes`);
           const url = URL.createObjectURL(audioBlob);
           audioRef.current.src = url;
           audioRef.current.load();
@@ -321,10 +322,13 @@ export default function Home() {
           } catch (e) {
             log('初期音声再生失敗: ' + (e as Error).message);
             setIsSpeaking(false);
+          } finally {
+            setIsGeneratingAudio(false);
           }
         } else if (data.message && ttsEnabled) {
           // Fallback: Message present but audio failed to pre-fetch
           log('初期音声プリフェッチなし。手動再生を試みます...');
+          setIsGeneratingAudio(true);
           playTTS(data.message);
         }
       } else {
@@ -438,9 +442,11 @@ export default function Home() {
         setMessages(prev => [...prev, assistantMessage]);
 
         // Play TTS for response
+        log(`TTS開始: "${data.message.substring(0, 20)}..."`);
         playTTS(data.message);
       } else {
         log('チャットAPIエラー: ' + response.status);
+        setIsGeneratingAudio(false);
       }
     } catch (error) {
       log('送信エラー: ' + (error as Error).message);
@@ -1076,11 +1082,11 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         style={{ display: 'none' }}
       />
 
-      {/* Hidden Debug Overlay (Triggered by holding settings or just visible in dev) */}
+      {/* Hidden Debug Overlay */}
       {debugLog.length > 0 && (
         <div className="fixed bottom-24 left-4 right-4 z-50 pointer-events-none">
           <div className="max-w-md mx-auto bg-black/80 backdrop-blur-md rounded-lg p-2 border border-white/10 text-[10px] font-mono text-green-400 overflow-hidden opacity-50 hover:opacity-100 transition-opacity">
-            {debugLog.slice(-5).map((line, i) => (
+            {debugLog.slice(-8).map((line, i) => (
               <div key={i} className="truncate">{line}</div>
             ))}
           </div>

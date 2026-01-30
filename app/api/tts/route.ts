@@ -21,19 +21,25 @@ export async function POST(request: NextRequest) {
             const identity = await loadIdentity();
             voiceId = identity?.voiceId || DEFAULT_VOICE_ID;
         }
+        console.log(`[API/TTS] Process start: textLength=${text.length}, voiceId=${voiceId}`);
 
+        const startTime = Date.now();
         const client = getKieApiClient();
 
         // Get audio URL from Kie.ai TTS with the selected voice
         const audioUrl = await client.textToSpeech(text, voiceId);
+        const duration = Date.now() - startTime;
+        console.log(`[API/TTS] Kie.ai success: duration=${duration}ms, url=${audioUrl}`);
 
         // Fetch the audio file
         const audioResponse = await fetch(audioUrl);
         if (!audioResponse.ok) {
-            throw new Error('Failed to fetch audio');
+            console.error(`[API/TTS] Audio fetch failed: ${audioResponse.status}`);
+            throw new Error('Failed to fetch audio from generated URL');
         }
 
         const audioBuffer = await audioResponse.arrayBuffer();
+        console.log(`[API/TTS] Process complete: size=${audioBuffer.byteLength} bytes`);
 
         return new NextResponse(audioBuffer, {
             headers: {
