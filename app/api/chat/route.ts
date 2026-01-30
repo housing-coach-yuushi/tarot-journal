@@ -18,6 +18,7 @@ import { getVoiceIdByName, DEFAULT_VOICE_ID } from '@/lib/tts/voices';
 export async function POST(request: NextRequest) {
     try {
         const { message, history = [], saveData, userId = 'default' } = await request.json();
+        console.log(`[API/CHAT] Incoming request: message="${message?.substring(0, 20)}", userId=${userId}`);
 
         // Handle data saving (for bootstrap completion)
         if (saveData) {
@@ -146,6 +147,7 @@ export async function POST(request: NextRequest) {
         const identity = await loadIdentity();
         const user = await loadUser(userId);
 
+        console.log(`[API/CHAT] Response generated for ${userId}: "${response.substring(0, 20)}..."`);
         return NextResponse.json({
             message: response,
             role: 'assistant',

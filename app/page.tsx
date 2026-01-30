@@ -217,6 +217,7 @@ export default function Home() {
             body: JSON.stringify({ history: [], userId: currentUserId }),
           }),
         ]);
+        log('ステータスと初期メッセージのレスポンスを受信しました');
 
         const status = await statusRes.json();
         let messageText = '';
@@ -230,7 +231,7 @@ export default function Home() {
             status.user = data.user;
             status.isBootstrapped = data.isBootstrapped;
           }
-          log('初期メッセージ取得成功');
+          log(`初期メッセージ取得成功: "${messageText.substring(0, 20)}..."`);
 
           // Pre-fetch TTS audio
           if (messageText && ttsEnabled) {
@@ -260,9 +261,10 @@ export default function Home() {
         // Store prepared data
         initDataRef.current = { message: messageText, audioUrl, status };
         setIsReady(true);
-        log('バックグラウンド準備完了');
+        log(`バックグラウンド準備完了: メッセージ="${messageText.substring(0, 10)}...", 音声=${!!audioUrl}`);
       } catch (error) {
-        log('初期化エラー: ' + (error as Error).message);
+        const errMsg = error instanceof Error ? error.message : String(error);
+        log(`初期化エラー詳細: ${errMsg}`);
         // Even on error, let user tap to proceed
         setIsReady(true);
       } finally {
@@ -305,6 +307,7 @@ export default function Home() {
           timestamp: new Date(),
         };
         setMessages([initialMsg]);
+        log(`初期メッセージをセットしました: ${data.message.substring(0, 20)}...`);
 
         // Play pre-fetched audio immediately
         if (data.audioUrl && audioRef.current) {
@@ -319,6 +322,8 @@ export default function Home() {
             setIsSpeaking(false);
           }
         }
+      } else {
+        log('初期メッセージがdata.messageにありません');
       }
     } else {
       // Data not ready yet - show chat and wait for background to finish

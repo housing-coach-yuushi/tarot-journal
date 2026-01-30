@@ -6,6 +6,7 @@ import { DEFAULT_VOICE_ID } from '@/lib/tts/voices';
 export async function POST(request: NextRequest) {
     try {
         const { text, voiceId: requestVoiceId } = await request.json();
+        console.log(`[API/TTS] Incoming request: text="${text?.substring(0, 20)}...", voiceId=${requestVoiceId}`);
 
         if (!text) {
             return NextResponse.json(
