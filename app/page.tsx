@@ -99,7 +99,12 @@ export default function Home() {
     if (index >= audioQueueRef.current.length) return;
 
     // If already fetching or fetched, don't repeat
-    if (audioUrlsRef.current[index] !== null) return;
+    if (audioUrlsRef.current[index] !== null) {
+      if (index === playIndexRef.current && !isSpeaking) {
+        playCurrentIndex(version);
+      }
+      return;
+    }
 
     const text = audioQueueRef.current[index];
     log(`チャンク ${index + 1}/${audioQueueRef.current.length} の取得開始: ${text.substring(0, 5)}...`);
@@ -393,26 +398,27 @@ export default function Home() {
           timestamp: new Date(),
         };
         setMessages([initialMsg]);
-      }
 
-      // Play pre-fetched audio immediately
-      if (data.audioUrl && audioRef.current) {
-        audioRef.current.src = data.audioUrl;
-        audioRef.current.load();
-        setIsSpeaking(true);
-        try {
-          await audioRef.current.play();
-          log('初期音声再生開始');
-        } catch (e) {
-          log('音声再生失敗: ' + (e as Error).message);
-          setIsSpeaking(false);
+        // Start playing through the queue system
+        log('初期音声をキューにセット');
+        const version = ++queueVersionRef.current;
+        const chunks = splitIntoChunks(data.message);
+        audioQueueRef.current = chunks;
+        audioUrlsRef.current = new Array(chunks.length).fill(null);
+
+        // If we have a single chunk and a pre-fetched URL, use it
+        if (chunks.length === 1 && data.audioUrl) {
+          audioUrlsRef.current[0] = data.audioUrl;
         }
+
+        playIndexRef.current = 0;
+        fetchAndPlayChunk(0, version);
       }
     } else {
       // Data not ready yet - show chat and wait for background to finish
       log('データ準備中のままタップ。バックグラウンド完了待ち...');
     }
-  }, [isLoading, log]);
+  }, [isLoading, log, splitIntoChunks, fetchAndPlayChunk]);
 
   // When background prep finishes after user already tapped, apply data
   useEffect(() => {
@@ -433,19 +439,25 @@ export default function Home() {
             timestamp: new Date(),
           }];
         });
-      }
 
-      // Play audio if unlocked
-      if (data.audioUrl && audioRef.current && audioUnlocked) {
-        audioRef.current.src = data.audioUrl;
-        audioRef.current.load();
-        setIsSpeaking(true);
-        audioRef.current.play()
-          .then(() => log('遅延再生開始'))
-          .catch(() => setIsSpeaking(false));
+        // Start playing through the queue system if unlocked
+        if (audioUnlocked) {
+          log('遅延初期音声をキューにセット');
+          const version = ++queueVersionRef.current;
+          const chunks = splitIntoChunks(data.message);
+          audioQueueRef.current = chunks;
+          audioUrlsRef.current = new Array(chunks.length).fill(null);
+
+          if (chunks.length === 1 && data.audioUrl) {
+            audioUrlsRef.current[0] = data.audioUrl;
+          }
+
+          playIndexRef.current = 0;
+          fetchAndPlayChunk(0, version);
+        }
       }
     }
-  }, [isReady, isLoading, audioUnlocked, log]);
+  }, [isReady, isLoading, audioUnlocked, log, splitIntoChunks, fetchAndPlayChunk]);
 
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
