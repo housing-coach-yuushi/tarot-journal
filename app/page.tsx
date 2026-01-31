@@ -81,7 +81,7 @@ export default function Home() {
 
     if (isEnabled && audioUnlocked) {
       bgmRef.current.play().catch(e => console.warn(`BGM play failed: ${e.message}`));
-      bgmRef.current.volume = 0.05; // うっすら
+      bgmRef.current.volume = 0.01; // さらにうっすら
     } else {
       bgmRef.current.pause();
     }
@@ -964,17 +964,6 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         </div>
       )}
 
-      {/* Hidden Debug Overlay - Optional: only show if explicitly enabled */}
-      {(bootstrap.identity?.showDebug ?? false) && debugLog.length > 0 && (
-        <div className="fixed bottom-24 left-4 right-4 z-50 pointer-events-none text-center">
-          <div className="max-w-md mx-auto bg-black/80 backdrop-blur-md rounded-lg p-2 border border-white/10 text-[10px] font-mono text-green-400 overflow-hidden opacity-50 hover:opacity-100 transition-opacity">
-            {debugLog.slice(-3).map((line, i) => (
-              <div key={i} className="truncate">{line}</div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Listening indicator with current transcript */}
       {isListening && (
         <div className="absolute bottom-40 left-0 right-0 flex justify-center z-30 px-4">
@@ -1132,17 +1121,6 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         loop
         style={{ display: 'none' }}
       />
-
-      {/* Hidden Debug Overlay */}
-      {debugLog.length > 0 && (
-        <div className="fixed bottom-24 left-4 right-4 z-50 pointer-events-none">
-          <div className="max-w-md mx-auto bg-black/80 backdrop-blur-md rounded-lg p-2 border border-white/10 text-[10px] font-mono text-green-400 overflow-hidden opacity-50 hover:opacity-100 transition-opacity">
-            {debugLog.slice(-8).map((line, i) => (
-              <div key={i} className="truncate">{line}</div>
-            ))}
-          </div>
-        </div>
-      )}
     </main>
   );
 }
