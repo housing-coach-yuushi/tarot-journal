@@ -300,16 +300,21 @@ export default function Home() {
         log('オーディオアンロック試行...');
 
         // If we have prepared audio, use it directly as the unlock gesture
-        // If not, use the silent WAV
         if (data?.audioUrl) {
           audioRef.current.src = data.audioUrl;
+          audioRef.current.load();
           log('準備済みの音声でアンロックします');
         } else {
           audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+          audioRef.current.load();
         }
 
         const p = audioRef.current.play();
         if (p !== undefined) {
+          if (data?.audioUrl) {
+            setIsSpeaking(true);
+            setIsGeneratingAudio(false);
+          }
           p.then(() => {
             log(data?.audioUrl ? '初期音声再生成功 (Unlock完了)' : '無音再生成功 (Unlock完了)');
             if (!data?.audioUrl && audioRef.current?.src.startsWith('data:audio/wav')) {
@@ -317,9 +322,9 @@ export default function Home() {
               audioRef.current.currentTime = 0;
             }
           }).catch(e => {
-            // "Interrupted by new load" is normal if useEffect triggers fast
             if (e.name !== 'AbortError') {
               log('アンロックPromiseエラー: ' + e.message);
+              if (data?.audioUrl) setIsSpeaking(false);
             }
           });
         }

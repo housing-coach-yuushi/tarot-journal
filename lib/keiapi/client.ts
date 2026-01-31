@@ -144,6 +144,8 @@ class KieApiClient {
                 return result.resultUrls?.[0] || JSON.stringify(result);
             } else if (status.state === 'fail') {
                 throw new Error(`Task failed: ${status.failMsg || status.failCode || 'Unknown error'}`);
+            } else if (status.state !== 'waiting' && status.state !== 'queuing' && status.state !== 'generating') {
+                throw new Error(`Unexpected task state: ${status.state}`);
             }
         }
 
