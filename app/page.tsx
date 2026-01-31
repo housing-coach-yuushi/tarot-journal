@@ -152,7 +152,8 @@ export default function Home() {
           }
         }
       } else {
-        log('TTSエラー: ' + response.status);
+        const errorData = await response.json().catch(() => ({}));
+        log('TTSエラー: ' + (errorData.details || errorData.error || response.status));
         setIsGeneratingAudio(false);
       }
     } catch (error) {
@@ -471,7 +472,8 @@ export default function Home() {
         log(`TTS開始: "${data.message.substring(0, 20)}..."`);
         playTTS(data.message);
       } else {
-        log('チャットAPIエラー: ' + response.status);
+        const errorData = await response.json().catch(() => ({}));
+        log('チャットAPIエラー: ' + (errorData.error || response.status));
         setIsGeneratingAudio(false);
       }
     } catch (error) {
