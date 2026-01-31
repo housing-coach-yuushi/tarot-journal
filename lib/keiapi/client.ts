@@ -95,6 +95,11 @@ class KieApiClient {
 
         if (!response.ok) {
             const errorText = await response.text();
+            if (response.status === 402) {
+                throw new Error(`Kie.ai APIクレジット不足または支払いが必要です (HTTP 402)`);
+            } else if (response.status === 401) {
+                throw new Error(`Kie.ai APIキーが無効です (HTTP 401)`);
+            }
             throw new Error(`Kie.ai Task API Http Error: ${response.status} - ${errorText}`);
         }
 
