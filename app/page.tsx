@@ -56,7 +56,10 @@ export default function Home() {
   const [isSending, setIsSending] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);  // TTS準備中
   const [showChat, setShowChat] = useState(true);
-  const [bootstrap, setBootstrap] = useState<BootstrapState>({ isBootstrapped: false });
+  const [bootstrap, setBootstrap] = useState<BootstrapState>({
+    isBootstrapped: false,
+    identity: { showDebug: false }
+  });
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
@@ -923,7 +926,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
       )}
 
       {/* Debug Log - Only visible when enabled in settings or in development by default */}
-      {(bootstrap.identity?.showDebug ?? false) && (
+      {bootstrap.identity?.showDebug === true && (
         <div className="absolute top-[65px] left-4 z-50 pointer-events-none max-w-[250px]">
           <div className="bg-black/60 backdrop-blur-md rounded-md p-2 font-mono text-[10px] sm:text-[12px] text-green-400 border border-green-500/20">
             <div className="flex gap-2 mb-1 border-b border-white/10 pb-1">
