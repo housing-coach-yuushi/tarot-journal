@@ -60,15 +60,16 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('TTS API Error Detail:', {
-            message: error instanceof Error ? error.message : String(error),
+            message: errorMessage,
             stack: error instanceof Error ? error.stack : undefined,
             textSnippet: text?.substring(0, 50),
             voiceId: voiceId,
             voiceName: voiceName
         });
         return NextResponse.json(
-            { error: 'Failed to generate speech', details: error instanceof Error ? error.message : 'Unknown' },
+            { error: 'Failed to generate speech', details: errorMessage },
             { status: 500 }
         );
     }

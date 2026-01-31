@@ -303,7 +303,16 @@ export default function Home() {
         if (data?.audioUrl) {
           audioRef.current.src = data.audioUrl;
           audioRef.current.load();
-          log('準備済みの音声でアンロックします');
+          audioRef.current.volume = 1.0;
+          audioRef.current.muted = false;
+
+          // Small wait for blob to be ready to avoid 'play() request interrupted'
+          let waitCount = 0;
+          while (audioRef.current.readyState < 2 && waitCount < 20) {
+            await new Promise(r => setTimeout(r, 50));
+            waitCount++;
+          }
+          log(`準備済み音声セット (readyState: ${audioRef.current.readyState})`);
         } else {
           audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
           audioRef.current.load();
