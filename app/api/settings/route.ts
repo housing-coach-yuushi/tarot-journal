@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
                 voiceId: identity.voiceId,
                 emoji: identity.emoji,
                 showDebug: identity.showDebug,
+                bgmEnabled: identity.bgmEnabled,
             } : null,
             user: user ? {
                 displayName: user.displayName,
@@ -53,12 +54,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { userId, aiName, userName, voiceId, showDebug } = body;
+        const { userId, aiName, userName, voiceId, showDebug, bgmEnabled } = body;
 
         const updates: Record<string, unknown> = {};
 
         // Update AI identity
-        if (aiName !== undefined || voiceId !== undefined || showDebug !== undefined) {
+        if (aiName !== undefined || voiceId !== undefined || showDebug !== undefined || bgmEnabled !== undefined) {
             const aiUpdates: Record<string, any> = {};
             if (aiName) aiUpdates.name = aiName;
             if (voiceId) {
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
                 }
             }
             if (showDebug !== undefined) aiUpdates.showDebug = showDebug;
+            if (bgmEnabled !== undefined) aiUpdates.bgmEnabled = bgmEnabled;
             if (Object.keys(aiUpdates).length > 0) {
                 const updatedIdentity = await updateAIIdentity(aiUpdates);
                 updates.identity = updatedIdentity;

@@ -19,7 +19,14 @@ interface SettingsModalProps {
     currentUserName?: string;
     currentVoiceId?: string;
     currentShowDebug?: boolean;
-    onSave: (settings: { aiName?: string; userName?: string; voiceId?: string; showDebug?: boolean }) => void;
+    currentBgmEnabled?: boolean;
+    onSave: (settings: {
+        aiName?: string;
+        userName?: string;
+        voiceId?: string;
+        showDebug?: boolean;
+        bgmEnabled?: boolean;
+    }) => void;
 }
 
 export default function SettingsModal({
@@ -30,12 +37,14 @@ export default function SettingsModal({
     currentUserName = '',
     currentVoiceId = '',
     currentShowDebug = false,
+    currentBgmEnabled = false,
     onSave,
 }: SettingsModalProps) {
     const [aiName, setAiName] = useState(currentAiName);
     const [userName, setUserName] = useState(currentUserName);
     const [voiceId, setVoiceId] = useState(currentVoiceId);
     const [showDebug, setShowDebug] = useState(currentShowDebug);
+    const [bgmEnabled, setBgmEnabled] = useState(currentBgmEnabled);
     const [voices, setVoices] = useState<VoiceOption[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -52,6 +61,7 @@ export default function SettingsModal({
                     if (data.identity?.name) setAiName(data.identity.name);
                     if (data.identity?.voiceId) setVoiceId(data.identity.voiceId);
                     if (data.identity?.showDebug !== undefined) setShowDebug(data.identity.showDebug);
+                    if (data.identity?.bgmEnabled !== undefined) setBgmEnabled(data.identity.bgmEnabled);
                     if (data.user?.displayName) setUserName(data.user.displayName);
                 })
                 .catch(err => {
@@ -67,7 +77,8 @@ export default function SettingsModal({
         setUserName(currentUserName);
         setVoiceId(currentVoiceId);
         setShowDebug(currentShowDebug);
-    }, [currentAiName, currentUserName, currentVoiceId, currentShowDebug]);
+        setBgmEnabled(currentBgmEnabled);
+    }, [currentAiName, currentUserName, currentVoiceId, currentShowDebug, currentBgmEnabled]);
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -83,6 +94,7 @@ export default function SettingsModal({
                     userName: userName || undefined,
                     voiceId: voiceId || undefined,
                     showDebug: showDebug,
+                    bgmEnabled: bgmEnabled,
                 }),
             });
 
@@ -91,7 +103,7 @@ export default function SettingsModal({
                 throw new Error(data.error || '保存に失敗しました');
             }
 
-            onSave({ aiName, userName, voiceId, showDebug });
+            onSave({ aiName, userName, voiceId, showDebug, bgmEnabled });
             onClose();
         } catch (err) {
             setError(err instanceof Error ? err.message : '保存に失敗しました');
@@ -195,6 +207,23 @@ export default function SettingsModal({
                                         ))}
                                     </optgroup>
                                 </select>
+                            </div>
+
+                            {/* BGM Toggle */}
+                            <div className="flex items-center justify-between p-1">
+                                <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                                    <Volume2 size={16} />
+                                    BGM (静かなバー)
+                                </label>
+                                <button
+                                    onClick={() => setBgmEnabled(!bgmEnabled)}
+                                    className={`w-12 h-6 rounded-full transition-colors relative ${bgmEnabled ? 'bg-purple-600' : 'bg-white/10'}`}
+                                >
+                                    <motion.div
+                                        animate={{ x: bgmEnabled ? 28 : 4 }}
+                                        className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
+                                    />
+                                </button>
                             </div>
 
                             {/* Debug Toggle */}

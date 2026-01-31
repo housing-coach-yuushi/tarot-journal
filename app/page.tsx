@@ -27,6 +27,7 @@ interface BootstrapState {
     emoji?: string;
     voiceId?: string;
     showDebug?: boolean;
+    bgmEnabled?: boolean;
   };
   user?: {
     name?: string;
@@ -69,7 +70,22 @@ export default function Home() {
   const [showTapHint, setShowTapHint] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const bgmRef = useRef<HTMLAudioElement | null>(null);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
+
+  // BGM playback control
+  useEffect(() => {
+    if (!bgmRef.current) return;
+
+    const isEnabled = bootstrap.identity?.bgmEnabled ?? false;
+
+    if (isEnabled && audioUnlocked) {
+      bgmRef.current.play().catch(e => console.warn(`BGM play failed: ${e.message}`));
+      bgmRef.current.volume = 0.05; // うっすら
+    } else {
+      bgmRef.current.pause();
+    }
+  }, [bootstrap.identity?.bgmEnabled, audioUnlocked]);
 
   // Debug logger
   const log = useCallback((msg: string) => {
@@ -811,16 +827,18 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         currentUserName={bootstrap.user?.name || bootstrap.user?.callName || ''}
         currentVoiceId={bootstrap.identity?.voiceId || ''}
         currentShowDebug={bootstrap.identity?.showDebug || false}
+        currentBgmEnabled={bootstrap.identity?.bgmEnabled || false}
         onSave={(settings) => {
           // Update local bootstrap state with new values
-          if (settings.aiName || settings.voiceId || settings.showDebug !== undefined) {
+          if (settings.aiName || settings.voiceId || settings.showDebug !== undefined || settings.bgmEnabled !== undefined) {
             setBootstrap(prev => ({
               ...prev,
               identity: {
                 ...(prev.identity || {}),
                 name: settings.aiName || prev.identity?.name,
                 voiceId: settings.voiceId || prev.identity?.voiceId,
-                showDebug: settings.showDebug !== undefined ? settings.showDebug : prev.identity?.showDebug
+                showDebug: settings.showDebug !== undefined ? settings.showDebug : prev.identity?.showDebug,
+                bgmEnabled: settings.bgmEnabled !== undefined ? settings.bgmEnabled : prev.identity?.bgmEnabled
               }
             }));
           }
@@ -834,7 +852,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
               }
             }));
           }
-          log(`設定を保存しました: AI=${settings.aiName || '変更なし'}, User=${settings.userName || '変更なし'}, Voice=${settings.voiceId || '変更なし'}, Debug=${settings.showDebug !== undefined ? settings.showDebug : '変更なし'}`);
+          log(`設定を保存しました: AI=${settings.aiName || '変更なし'}, User=${settings.userName || '変更なし'}, Voice=${settings.voiceId || '変更なし'}, Debug=${settings.showDebug !== undefined ? settings.showDebug : '変更なし'}, BGM=${settings.bgmEnabled !== undefined ? settings.bgmEnabled : '変更なし'}`);
         }}
       />
 
@@ -1106,6 +1124,12 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         ref={audioRef}
         onEnded={() => setIsSpeaking(false)}
         onError={() => setIsSpeaking(false)}
+        style={{ display: 'none' }}
+      />
+      <audio
+        ref={bgmRef}
+        src="/audio/bar-bgm.mp3"
+        loop
         style={{ display: 'none' }}
       />
 

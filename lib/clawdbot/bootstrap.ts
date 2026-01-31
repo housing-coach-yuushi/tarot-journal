@@ -25,6 +25,7 @@ export interface IdentityData {
     avatar?: string;
     voiceId?: string;
     showDebug?: boolean;
+    bgmEnabled?: boolean;
 }
 
 export interface UserData {
@@ -64,6 +65,7 @@ export async function loadIdentity(): Promise<IdentityData | null> {
         emoji: identity.emoji,
         voiceId: identity.voiceId,
         showDebug: identity.showDebug,
+        bgmEnabled: identity.bgmEnabled,
     };
 }
 
@@ -90,6 +92,7 @@ export async function saveIdentity(identity: IdentityData): Promise<void> {
         emoji: identity.emoji || '🔮',
         voiceId: identity.voiceId || existing?.voiceId,
         showDebug: identity.showDebug ?? existing?.showDebug ?? false,
+        bgmEnabled: identity.bgmEnabled ?? existing?.bgmEnabled ?? false,
         createdAt: existing?.createdAt || now,
         updatedAt: now,
     });

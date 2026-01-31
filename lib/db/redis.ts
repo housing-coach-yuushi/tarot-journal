@@ -31,6 +31,7 @@ export interface AIIdentity {
     emoji: string;
     voiceId?: string;  // ElevenLabs voice ID
     showDebug?: boolean; // Whether to show debug logs in UI
+    bgmEnabled?: boolean; // Whether to play background music
     createdAt: string;
     updatedAt: string;
 }
