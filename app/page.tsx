@@ -291,22 +291,35 @@ export default function Home() {
     if (!isLoading) return;
     setIsLoading(false);
 
-    // Unlock audio context with user gesture + small silent source
+    const data = initDataRef.current;
+
+    // Unlock audio context with user gesture
     if (audioRef.current) {
       try {
         log('オーディオアンロック試行...');
-        // Use standard silent WAV header
-        audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+
+        // If we have prepared audio, use it directly as the unlock gesture
+        // If not, use the silent WAV
+        if (data?.audioUrl) {
+          audioRef.current.src = data.audioUrl;
+          log('準備済みの音声でアンロックします');
+        } else {
+          audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+        }
+
         const p = audioRef.current.play();
         if (p !== undefined) {
           p.then(() => {
-            log('アンロック成功');
-            if (audioRef.current && audioRef.current.src.startsWith('data:audio/wav')) {
+            log(data?.audioUrl ? '初期音声再生成功 (Unlock完了)' : '無音再生成功 (Unlock完了)');
+            if (!data?.audioUrl && audioRef.current?.src.startsWith('data:audio/wav')) {
               audioRef.current.pause();
               audioRef.current.currentTime = 0;
             }
           }).catch(e => {
-            log('アンロックPromiseエラー: ' + e.message);
+            // "Interrupted by new load" is normal if useEffect triggers fast
+            if (e.name !== 'AbortError') {
+              log('アンロックPromiseエラー: ' + e.message);
+            }
           });
         }
       } catch (e) {
@@ -314,9 +327,8 @@ export default function Home() {
       }
     }
     setAudioUnlocked(true);
-    log('オーディオアンロック完了');
+    log('オーディオアンロック処理通過');
 
-    const data = initDataRef.current;
     if (data) {
       // Data is already ready - apply immediately
       initDataRef.current = null; // consume
@@ -330,28 +342,12 @@ export default function Home() {
           timestamp: new Date(),
         };
         setMessages([initialMsg]);
-        log(`初期メッセージをセットしました: ${data.message.substring(0, 20)}...`);
 
-        // Play pre-fetched audio immediately if available
-        if (data.audioUrl && audioRef.current) {
-          audioRef.current.src = data.audioUrl;
-          audioRef.current.load();
-          setIsSpeaking(true);
-          setIsGeneratingAudio(false);
-          try {
-            await audioRef.current.play();
-            log('初期音声(プリフェッチ)再生開始');
-          } catch (e) {
-            log('初期音声再生失敗: ' + (e as Error).message);
-            setIsSpeaking(false);
-          } finally {
-            setIsGeneratingAudio(false);
-          }
-        } else if (data.message && ttsEnabled) {
-          // Fallback: Message present but audio failed to pre-fetch
-          log('初期音声プリフェッチなし。手動再生を試みます...');
-          setIsGeneratingAudio(true);
-          playTTS(data.message);
+        // If audioUrl was NOT handled by the unlock logic above (e.g. if we used silent wav)
+        // or if it just failed to start, handle it here.
+        if (data.message && ttsEnabled && (!data.audioUrl || !audioUnlocked)) {
+          // This will be handled by the useEffect watching isReady/isLoading/audioUnlocked
+          // to prevent double execution.
         }
       } else {
         log('初期メッセージがdata.messageにありません');
