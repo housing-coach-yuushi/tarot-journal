@@ -3,13 +3,13 @@
 ## 📋 プロジェクト概要
 
 **名前**: George Tarot Journal  
-**目的**: Clawdbot式ブートストラップを持つタロットジャーナルPWA  
+**目的**: 自己変革を促すジャーナリング（振り返り）PWA（Clawdbot式）
 **場所**: `/Users/yuushinakashima/Library/CloudStorage/GoogleDrive-yuushi226@gmail.com/マイドライブ/george app/george-tarot-journal`
 
 ### コンセプト
+- **ジャーナリング主軸**: 毎日の振り返り（CAMJAPAN「３つの変化」に基づく）をメイン機能とする
+- **タロット（裏メニュー）**: 占いは内省を深めるための「きっかけ」として位置づける隠し機能
 - **Clawdbot式ブートストラップ**: AIが「目覚め」、ユーザーと一緒に自分のアイデンティティ（名前、性格、話し方、絵文字）を決める
-- **毎日の振り返り**: タロットカードを使った日々の内省ジャーナル
-- **関連アプリ**: `george-bar-app`（毒舌タロット占い師ジョージ）と同じ技術スタックを使用
 
 ---
 
