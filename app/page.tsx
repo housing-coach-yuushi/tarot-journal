@@ -687,39 +687,12 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                     exit={{ opacity: 0 }}
                     className="flex flex-col items-center gap-6"
                   >
-                    {/* Gemini-style organic orb */}
-                    <div className="relative w-32 h-32 flex items-center justify-center">
-                      {/* Significantly larger outer glows to prevent edge clipping */}
+                    {/* Simple loading bar or nothing to keep it clean */}
+                    <div className="h-0.5 w-32 bg-white/10 overflow-hidden rounded-full">
                       <motion.div
-                        animate={{
-                          scale: [1, 1.2, 0.9, 1.1, 1],
-                          rotate: [0, 90, 180, 270, 360],
-                        }}
-                        transition={{ repeat: Infinity, duration: 8, ease: 'linear' }}
-                        className="absolute inset-[-40px] rounded-full bg-blue-500/20 blur-[40px]"
-                      />
-                      <motion.div
-                        animate={{
-                          scale: [1, 0.8, 1.2, 0.9, 1],
-                          rotate: [360, 270, 180, 90, 0],
-                        }}
-                        transition={{ repeat: Infinity, duration: 10, ease: 'linear' }}
-                        className="absolute inset-[-20px] rounded-full bg-purple-500/20 blur-[30px]"
-                      />
-                      <motion.div
-                        animate={{
-                          scale: [1, 1.1, 0.9, 1.05, 1],
-                        }}
-                        transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
-                        className="absolute inset-2 rounded-full bg-cyan-400/30 blur-[20px]"
-                      />
-                      <motion.div
-                        animate={{
-                          opacity: [0.4, 0.8, 0.4],
-                          scale: [0.95, 1.05, 0.95],
-                        }}
-                        transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
-                        className="absolute inset-6 rounded-full bg-white/20 blur-md shadow-[0_0_20px_rgba(255,255,255,0.3)]"
+                        animate={{ x: [-128, 128] }}
+                        transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                        className="h-full w-full bg-blue-500/50"
                       />
                     </div>
                     <motion.p
