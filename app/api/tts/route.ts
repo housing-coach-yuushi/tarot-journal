@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getKieApiClient } from '@/lib/keiapi/client';
 import { loadIdentity } from '@/lib/clawdbot/bootstrap';
-import { DEFAULT_VOICE_ID } from '@/lib/tts/voices';
+import { DEFAULT_VOICE_ID, getVoiceById } from '@/lib/tts/voices';
 
 export async function POST(request: NextRequest) {
     try {
@@ -21,13 +21,17 @@ export async function POST(request: NextRequest) {
             const identity = await loadIdentity();
             voiceId = identity?.voiceId || DEFAULT_VOICE_ID;
         }
-        console.log(`[API/TTS] Process start: textLength=${text.length}, voiceId=${voiceId}`);
+        // Resolve voice name for Kie.ai API (it expects name, not ID/UUID)
+        const voiceOption = getVoiceById(voiceId);
+        const voiceName = voiceOption?.name || 'George';
+
+        console.log(`[API/TTS] Process start: textLength=${text.length}, voiceId=${voiceId}, voiceName=${voiceName}`);
 
         const startTime = Date.now();
         const client = getKieApiClient();
 
-        // Get audio URL from Kie.ai TTS with the selected voice
-        const audioUrl = await client.textToSpeech(text, voiceId);
+        // Get audio URL from Kie.ai TTS with the selected voice name
+        const audioUrl = await client.textToSpeech(text, voiceName);
         const duration = Date.now() - startTime;
         console.log(`[API/TTS] Kie.ai success: duration=${duration}ms, url=${audioUrl}`);
 

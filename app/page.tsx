@@ -108,10 +108,6 @@ export default function Home() {
     },
   });
 
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -266,22 +262,20 @@ export default function Home() {
               setIsGeneratingAudio(false);
             } catch (e) {
               log('TTS準備失敗: ' + (e as Error).message);
-              setIsGeneratingAudio(false);
             }
           }
         }
 
         // Store prepared data
         initDataRef.current = { message: messageText, audioUrl, status };
-        setIsReady(true);
         log(`バックグラウンド準備完了: メッセージ="${messageText.substring(0, 10)}...", 音声=${!!audioUrl}`);
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log(`初期化エラー詳細: ${errMsg}`);
-        // Even on error, let user tap to proceed
-        setIsReady(true);
       } finally {
+        setIsReady(true);
         setIsPreparing(false);
+        setIsGeneratingAudio(false);
       }
     };
 
@@ -297,17 +291,21 @@ export default function Home() {
 
     // Unlock audio context with user gesture + small silent source
     if (audioRef.current) {
-      try {
-        log('オーディオアンロック試行...');
-        audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-        audioRef.current.load();
-        await audioRef.current.play();
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-        audioRef.current.src = '';
-      } catch (e) {
-        log('アンロック失敗: ' + (e as Error).message);
-      }
+      log('オーディオアンロック試行...');
+      // Use standard silent WAV header
+      audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+      audioRef.current.load();
+      audioRef.current.play()
+        .then(() => {
+          log('アンロック成功');
+          if (audioRef.current && audioRef.current.src.startsWith('data:audio/wav')) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+          }
+        })
+        .catch(e => {
+          log('アンロックPromiseエラー: ' + e.message);
+        });
     }
     setAudioUnlocked(true);
     log('オーディオアンロック完了');
@@ -410,6 +408,11 @@ export default function Home() {
     log(`メッセージ送信開始: ${text.substring(0, 10)}...`);
     setIsSending(true);
 
+    // Clear input immediately to prevent double-send
+    if (showInChat) {
+      setInput('');
+    }
+
     // Stop any ongoing TTS
     stopTTS();
 
@@ -422,7 +425,6 @@ export default function Home() {
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, userMessage]);
-      setInput('');
     }
 
     try {
@@ -475,7 +477,7 @@ export default function Home() {
     } finally {
       setIsSending(false);
     }
-  }, [messages, isSending, log, stopTTS, playTTS]);
+  }, [messages, userId, isSending, log, stopTTS, playTTS]);
 
   // Save and Download journal
   const handleSave = useCallback(async () => {
@@ -535,7 +537,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
     } finally {
       setIsSummarizing(false);
     }
-  }, [messages, isSummarizing]);
+  }, [messages, isSummarizing, log]);
 
   // Reset function
   const handleReset = useCallback(async (resetType: 'all' | 'ai' | 'user') => {
