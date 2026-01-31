@@ -177,14 +177,14 @@ export default function SettingsModal({
                                     <optgroup label="男性" className="bg-gray-900">
                                         {voices.filter(v => v.gender === 'male').map(voice => (
                                             <option key={voice.id} value={voice.id} className="bg-gray-900">
-                                                {voice.name} - {voice.description}
+                                                {(voice as any).label || voice.name} - {voice.description}
                                             </option>
                                         ))}
                                     </optgroup>
                                     <optgroup label="女性" className="bg-gray-900">
                                         {voices.filter(v => v.gender === 'female').map(voice => (
                                             <option key={voice.id} value={voice.id} className="bg-gray-900">
-                                                {voice.name} - {voice.description}
+                                                {(voice as any).label || voice.name} - {voice.description}
                                             </option>
                                         ))}
                                     </optgroup>

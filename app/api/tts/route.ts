@@ -28,9 +28,9 @@ export async function POST(request: NextRequest) {
             const identity = await loadIdentity();
             voiceId = identity?.voiceId || DEFAULT_VOICE_ID;
         }
-        // Resolve voice name for Kie.ai API (it expects name, not ID/UUID)
+        // Resolve voice name for Kie.ai API (it expects English name/standard ElevenLabs name)
         const voiceOption = getVoiceById(voiceId);
-        voiceName = voiceOption?.name || 'George';
+        voiceName = voiceOption?.name || 'Daniel'; // Fallback to Daniel (better Japanese)
 
         console.log(`[API/TTS] Process start: textLength=${text.length}, voiceId=${voiceId}, voiceName=${voiceName}`);
 

@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
             availableVoices: JAPANESE_VOICES.map(v => ({
                 id: v.id,
                 name: v.name,
+                label: v.label,
                 gender: v.gender,
                 description: v.description,
             })),
