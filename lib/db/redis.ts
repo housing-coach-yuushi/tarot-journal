@@ -30,6 +30,7 @@ export interface AIIdentity {
     speakingStyle: string;
     emoji: string;
     voiceId?: string;  // ElevenLabs voice ID
+    showDebug?: boolean; // Whether to show debug logs in UI
     createdAt: string;
     updatedAt: string;
 }

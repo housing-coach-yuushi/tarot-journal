@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
                 name: identity.name,
                 voiceId: identity.voiceId,
                 emoji: identity.emoji,
+                showDebug: identity.showDebug,
             } : null,
             user: user ? {
                 displayName: user.displayName,
@@ -52,13 +53,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { userId, aiName, userName, voiceId } = body;
+        const { userId, aiName, userName, voiceId, showDebug } = body;
 
         const updates: Record<string, unknown> = {};
 
         // Update AI identity
-        if (aiName !== undefined || voiceId !== undefined) {
-            const aiUpdates: Record<string, string> = {};
+        if (aiName !== undefined || voiceId !== undefined || showDebug !== undefined) {
+            const aiUpdates: Record<string, any> = {};
             if (aiName) aiUpdates.name = aiName;
             if (voiceId) {
                 // Validate voice ID
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
                     );
                 }
             }
+            if (showDebug !== undefined) aiUpdates.showDebug = showDebug;
             if (Object.keys(aiUpdates).length > 0) {
                 const updatedIdentity = await updateAIIdentity(aiUpdates);
                 updates.identity = updatedIdentity;

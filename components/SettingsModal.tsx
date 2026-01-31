@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Save, Volume2, User, Bot } from 'lucide-react';
+import { X, Save, Volume2, User, Bot, Bug } from 'lucide-react';
 
 interface VoiceOption {
     id: string;
@@ -18,7 +18,8 @@ interface SettingsModalProps {
     currentAiName?: string;
     currentUserName?: string;
     currentVoiceId?: string;
-    onSave: (settings: { aiName?: string; userName?: string; voiceId?: string }) => void;
+    currentShowDebug?: boolean;
+    onSave: (settings: { aiName?: string; userName?: string; voiceId?: string; showDebug?: boolean }) => void;
 }
 
 export default function SettingsModal({
@@ -28,11 +29,13 @@ export default function SettingsModal({
     currentAiName = '',
     currentUserName = '',
     currentVoiceId = '',
+    currentShowDebug = false,
     onSave,
 }: SettingsModalProps) {
     const [aiName, setAiName] = useState(currentAiName);
     const [userName, setUserName] = useState(currentUserName);
     const [voiceId, setVoiceId] = useState(currentVoiceId);
+    const [showDebug, setShowDebug] = useState(currentShowDebug);
     const [voices, setVoices] = useState<VoiceOption[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -48,6 +51,7 @@ export default function SettingsModal({
                     }
                     if (data.identity?.name) setAiName(data.identity.name);
                     if (data.identity?.voiceId) setVoiceId(data.identity.voiceId);
+                    if (data.identity?.showDebug !== undefined) setShowDebug(data.identity.showDebug);
                     if (data.user?.displayName) setUserName(data.user.displayName);
                 })
                 .catch(err => {
@@ -62,7 +66,8 @@ export default function SettingsModal({
         setAiName(currentAiName);
         setUserName(currentUserName);
         setVoiceId(currentVoiceId);
-    }, [currentAiName, currentUserName, currentVoiceId]);
+        setShowDebug(currentShowDebug);
+    }, [currentAiName, currentUserName, currentVoiceId, currentShowDebug]);
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -77,6 +82,7 @@ export default function SettingsModal({
                     aiName: aiName || undefined,
                     userName: userName || undefined,
                     voiceId: voiceId || undefined,
+                    showDebug: showDebug,
                 }),
             });
 
@@ -85,7 +91,7 @@ export default function SettingsModal({
                 throw new Error(data.error || '保存に失敗しました');
             }
 
-            onSave({ aiName, userName, voiceId });
+            onSave({ aiName, userName, voiceId, showDebug });
             onClose();
         } catch (err) {
             setError(err instanceof Error ? err.message : '保存に失敗しました');
@@ -189,6 +195,23 @@ export default function SettingsModal({
                                         ))}
                                     </optgroup>
                                 </select>
+                            </div>
+
+                            {/* Debug Toggle */}
+                            <div className="flex items-center justify-between p-1">
+                                <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                                    <Bug size={16} />
+                                    デバッグ表示
+                                </label>
+                                <button
+                                    onClick={() => setShowDebug(!showDebug)}
+                                    className={`w-12 h-6 rounded-full transition-colors relative ${showDebug ? 'bg-purple-600' : 'bg-white/10'}`}
+                                >
+                                    <motion.div
+                                        animate={{ x: showDebug ? 28 : 4 }}
+                                        className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm"
+                                    />
+                                </button>
                             </div>
                         </div>
 

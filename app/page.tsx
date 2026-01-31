@@ -25,6 +25,8 @@ interface BootstrapState {
     creature?: string;
     vibe?: string;
     emoji?: string;
+    voiceId?: string;
+    showDebug?: boolean;
   };
   user?: {
     name?: string;
@@ -801,29 +803,38 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         </div>
       </div>
 
-      {/* Settings Modal */}
       <SettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         userId={userId}
         currentAiName={bootstrap.identity?.name || ''}
         currentUserName={bootstrap.user?.name || bootstrap.user?.callName || ''}
-        currentVoiceId=""
+        currentVoiceId={bootstrap.identity?.voiceId || ''}
+        currentShowDebug={bootstrap.identity?.showDebug || false}
         onSave={(settings) => {
           // Update local bootstrap state with new values
-          if (settings.aiName) {
+          if (settings.aiName || settings.voiceId || settings.showDebug !== undefined) {
             setBootstrap(prev => ({
               ...prev,
-              identity: { ...prev.identity, name: settings.aiName }
+              identity: {
+                ...(prev.identity || {}),
+                name: settings.aiName || prev.identity?.name,
+                voiceId: settings.voiceId || prev.identity?.voiceId,
+                showDebug: settings.showDebug !== undefined ? settings.showDebug : prev.identity?.showDebug
+              }
             }));
           }
           if (settings.userName) {
             setBootstrap(prev => ({
               ...prev,
-              user: { ...prev.user, name: settings.userName, callName: settings.userName }
+              user: {
+                ...(prev.user || {}),
+                name: settings.userName,
+                callName: settings.userName
+              }
             }));
           }
-          log(`設定を保存しました: AI=${settings.aiName || '変更なし'}, User=${settings.userName || '変更なし'}, Voice=${settings.voiceId || '変更なし'}`);
+          log(`設定を保存しました: AI=${settings.aiName || '変更なし'}, User=${settings.userName || '変更なし'}, Voice=${settings.voiceId || '変更なし'}, Debug=${settings.showDebug !== undefined ? settings.showDebug : '変更なし'}`);
         }}
       />
 
@@ -920,8 +931,8 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         </div>
       )}
 
-      {/* Debug Log - Only in development */}
-      {process.env.NODE_ENV === 'development' && (
+      {/* Debug Log - Only visible when enabled in settings or in development by default */}
+      {(bootstrap.identity?.showDebug ?? false) && (
         <div className="absolute top-[65px] left-4 z-50 pointer-events-none max-w-[250px]">
           <div className="bg-black/60 backdrop-blur-md rounded-md p-2 font-mono text-[10px] sm:text-[12px] text-green-400 border border-green-500/20">
             <div className="flex gap-2 mb-1 border-b border-white/10 pb-1">
@@ -931,6 +942,17 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
             <div className="space-y-0.5">
               {debugLog.slice(-5).map((msg, i) => <div key={i} className="line-clamp-1">{msg}</div>)}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden Debug Overlay - Optional: only show if explicitly enabled */}
+      {(bootstrap.identity?.showDebug ?? false) && debugLog.length > 0 && (
+        <div className="fixed bottom-24 left-4 right-4 z-50 pointer-events-none text-center">
+          <div className="max-w-md mx-auto bg-black/80 backdrop-blur-md rounded-lg p-2 border border-white/10 text-[10px] font-mono text-green-400 overflow-hidden opacity-50 hover:opacity-100 transition-opacity">
+            {debugLog.slice(-3).map((line, i) => (
+              <div key={i} className="truncate">{line}</div>
+            ))}
           </div>
         </div>
       )}

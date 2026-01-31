@@ -24,6 +24,7 @@ export interface IdentityData {
     emoji?: string;
     avatar?: string;
     voiceId?: string;
+    showDebug?: boolean;
 }
 
 export interface UserData {
@@ -62,6 +63,7 @@ export async function loadIdentity(): Promise<IdentityData | null> {
         vibe: identity.speakingStyle,
         emoji: identity.emoji,
         voiceId: identity.voiceId,
+        showDebug: identity.showDebug,
     };
 }
 
@@ -87,6 +89,7 @@ export async function saveIdentity(identity: IdentityData): Promise<void> {
         speakingStyle: identity.vibe || '落ち着いた、親しみやすい',
         emoji: identity.emoji || '🔮',
         voiceId: identity.voiceId || existing?.voiceId,
+        showDebug: identity.showDebug ?? existing?.showDebug ?? false,
         createdAt: existing?.createdAt || now,
         updatedAt: now,
     });
