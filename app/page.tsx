@@ -80,11 +80,11 @@ export default function Home() {
   useEffect(() => {
     if (!bgmRef.current) return;
 
-    const isEnabled = bootstrap.identity?.bgmEnabled ?? false;
+    const isEnabled = bootstrap.identity?.bgmEnabled === true;
 
     if (isEnabled && audioUnlocked) {
       bgmRef.current.play().catch(e => console.warn(`BGM play failed: ${e.message}`));
-      bgmRef.current.volume = 0.01; // さらにうっすら
+      bgmRef.current.volume = 0.005; // 0.01でもうるさいとのことなのでさらに下げる
     } else {
       bgmRef.current.pause();
     }
