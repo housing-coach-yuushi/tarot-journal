@@ -259,7 +259,12 @@ export default function Home() {
                 if (blob.size > 0) {
                   audioUrl = URL.createObjectURL(blob);
                   log('音声プリフェッチ完了');
+                } else {
+                  log('音声プリフェッチ失敗: blob空');
                 }
+              } else {
+                const errorData = await ttsRes.json().catch(() => ({}));
+                log(`音声プリフェッチAPIエラー: ${errorData.details || errorData.error || ttsRes.status}`);
               }
             } catch (e) {
               log('プリフェッチ中断: ' + (e as Error).message);
@@ -361,11 +366,9 @@ export default function Home() {
         };
         setMessages([initialMsg]);
 
-        // If audioUrl was NOT handled by the unlock logic above (e.g. if we used silent wav)
-        // or if it just failed to start, handle it here.
-        if (data.message && ttsEnabled && (!data.audioUrl || !audioUnlocked)) {
-          // This will be handled by the useEffect watching isReady/isLoading/audioUnlocked
-          // to prevent double execution.
+        if (data.message && ttsEnabled && !data.audioUrl) {
+          log('プリフェッチ音声がないため、手動で再生を開始します');
+          playTTS(data.message);
         }
       } else {
         log('初期メッセージがdata.messageにありません');
