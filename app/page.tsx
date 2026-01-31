@@ -1084,7 +1084,6 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
               <motion.button
                 onMouseDown={handleMicDown}
                 onMouseUp={handleMicUp}
-                onMouseLeave={handleMicUp}
                 onTouchStart={handleMicDown}
                 onTouchEnd={handleMicUp}
                 whileTap={{ scale: 0.95 }}
