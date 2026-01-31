@@ -652,7 +652,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-md z-[100] flex items-center justify-center"
+            className="fixed inset-0 bg-black z-[100] flex items-center justify-center"
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
