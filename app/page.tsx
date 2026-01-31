@@ -274,7 +274,7 @@ export default function Home() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: messageText }),
-              }, 25000); // 25s limit for pre-fetch
+              }, 60000); // Wait up to 60s for pre-fetch
 
               if (ttsRes.ok) {
                 const blob = await ttsRes.blob();

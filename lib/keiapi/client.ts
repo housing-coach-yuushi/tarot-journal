@@ -142,7 +142,7 @@ class KieApiClient {
     /**
      * Create a task and wait for result (for TTS, image generation, etc.)
      */
-    async createTaskAndWait(model: string, input: object, maxWaitMs = 60000): Promise<string> {
+    async createTaskAndWait(model: string, input: object, maxWaitMs = 120000): Promise<string> {
         const taskId = await this.createTask(model, input);
 
         const startTime = Date.now();
