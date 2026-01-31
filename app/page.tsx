@@ -246,12 +246,13 @@ export default function Home() {
           if (messageText && ttsEnabled) {
             try {
               log('音声プリフェッチ中...');
-              setIsGeneratingAudio(true); // Indicate audio is being generated even in background
-              const ttsRes = await fetch('/api/tts', {
+              setIsGeneratingAudio(true);
+              const ttsRes = await fetchWithTimeout('/api/tts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: messageText }),
-              });
+              }, 25000); // 25s limit for pre-fetch
+
               if (ttsRes.ok) {
                 const blob = await ttsRes.blob();
                 if (blob.size > 0) {
@@ -259,9 +260,10 @@ export default function Home() {
                   log('音声プリフェッチ完了');
                 }
               }
-              setIsGeneratingAudio(false);
             } catch (e) {
-              log('TTS準備失敗: ' + (e as Error).message);
+              log('プリフェッチ中断: ' + (e as Error).message);
+            } finally {
+              setIsGeneratingAudio(false);
             }
           }
         }
@@ -291,21 +293,25 @@ export default function Home() {
 
     // Unlock audio context with user gesture + small silent source
     if (audioRef.current) {
-      log('オーディオアンロック試行...');
-      // Use standard silent WAV header
-      audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-      audioRef.current.load();
-      audioRef.current.play()
-        .then(() => {
-          log('アンロック成功');
-          if (audioRef.current && audioRef.current.src.startsWith('data:audio/wav')) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-          }
-        })
-        .catch(e => {
-          log('アンロックPromiseエラー: ' + e.message);
-        });
+      try {
+        log('オーディオアンロック試行...');
+        // Use standard silent WAV header
+        audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+        const p = audioRef.current.play();
+        if (p !== undefined) {
+          p.then(() => {
+            log('アンロック成功');
+            if (audioRef.current && audioRef.current.src.startsWith('data:audio/wav')) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
+          }).catch(e => {
+            log('アンロックPromiseエラー: ' + e.message);
+          });
+        }
+      } catch (e) {
+        log('アンロック例外: ' + (e as Error).message);
+      }
     }
     setAudioUnlocked(true);
     log('オーディオアンロック完了');
