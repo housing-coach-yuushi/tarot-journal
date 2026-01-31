@@ -298,47 +298,50 @@ export default function Home() {
     if (audioRef.current) {
       try {
         log('オーディオアンロック試行...');
+        const audio = audioRef.current;
+        audio.volume = 1.0;
+        audio.muted = false;
 
         // If we have prepared audio, use it directly as the unlock gesture
         if (data?.audioUrl) {
-          audioRef.current.src = data.audioUrl;
-          audioRef.current.load();
-          audioRef.current.volume = 1.0;
-          audioRef.current.muted = false;
+          audio.src = data.audioUrl;
+          audio.load();
 
-          // Small wait for blob to be ready to avoid 'play() request interrupted'
+          // Wait briefly for the blob to be "ready" to avoid 'play() request interrupted'
           let waitCount = 0;
-          while (audioRef.current.readyState < 2 && waitCount < 20) {
+          while (audio.readyState < 2 && waitCount < 20) {
             await new Promise(r => setTimeout(r, 50));
             waitCount++;
           }
-          log(`準備済み音声セット (readyState: ${audioRef.current.readyState})`);
+          log(`準備済み音声セット (readyState: ${audio.readyState}, wait: ${waitCount * 50}ms)`);
         } else {
-          audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-          audioRef.current.load();
+          audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+          audio.load();
         }
 
-        const p = audioRef.current.play();
+        const p = audio.play();
         if (p !== undefined) {
           if (data?.audioUrl) {
             setIsSpeaking(true);
             setIsGeneratingAudio(false);
           }
           p.then(() => {
-            log(data?.audioUrl ? '初期音声再生成功 (Unlock完了)' : '無音再生成功 (Unlock完了)');
-            if (!data?.audioUrl && audioRef.current?.src.startsWith('data:audio/wav')) {
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
+            log(data?.audioUrl ? '初期音声再生開始成功' : '無音再生成功');
+            if (!data?.audioUrl && audio.src.startsWith('data:audio/wav')) {
+              audio.pause();
+              audio.currentTime = 0;
             }
           }).catch(e => {
-            if (e.name !== 'AbortError') {
-              log('アンロックPromiseエラー: ' + e.message);
+            // "Interrupted by new load" is normal if useEffect triggers fast
+            if (e.name !== 'AbortedError' && e.name !== 'AbortError') {
+              log('再生Promiseエラー: ' + e.message);
               if (data?.audioUrl) setIsSpeaking(false);
             }
           });
         }
       } catch (e) {
         log('アンロック例外: ' + (e as Error).message);
+        setIsSpeaking(false);
       }
     }
     setAudioUnlocked(true);

@@ -94,13 +94,17 @@ class KieApiClient {
         });
 
         if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Kie.ai Task API Error: ${response.status} - ${error}`);
+            const errorText = await response.text();
+            throw new Error(`Kie.ai Task API Http Error: ${response.status} - ${errorText}`);
         }
 
         const data: TaskResponse = await response.json();
         if (data.code !== 200) {
-            throw new Error(`Kie.ai Error: ${data.message}`);
+            throw new Error(`Kie.ai createTask Error: [Code ${data.code}] ${data.message || 'No message'} (JSON: ${JSON.stringify(data)})`);
+        }
+
+        if (!data.data?.taskId) {
+            throw new Error(`Kie.ai createTask Error: No taskId returned in response data (JSON: ${JSON.stringify(data)})`);
         }
 
         return data.data.taskId;
@@ -119,11 +123,14 @@ class KieApiClient {
         });
 
         if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Kie.ai Query API Error: ${response.status} - ${error}`);
+            const errorText = await response.text();
+            throw new Error(`Kie.ai Query API Http Error: ${response.status} - ${errorText}`);
         }
 
         const data: TaskStatusResponse = await response.json();
+        if (!data.data) {
+            throw new Error(`Kie.ai queryTask Error: No data field in response (JSON: ${JSON.stringify(data)})`);
+        }
         return data.data;
     }
 
@@ -140,10 +147,14 @@ class KieApiClient {
             const status = await this.queryTask(taskId);
 
             if (status.state === 'success' && status.resultJson) {
-                const result = JSON.parse(status.resultJson);
-                return result.resultUrls?.[0] || JSON.stringify(result);
+                try {
+                    const result = JSON.parse(status.resultJson);
+                    return result.resultUrls?.[0] || JSON.stringify(result);
+                } catch (e) {
+                    throw new Error(`Failed to parse resultJson: ${status.resultJson}`);
+                }
             } else if (status.state === 'fail') {
-                throw new Error(`Task failed: ${status.failMsg || status.failCode || 'Unknown error'}`);
+                throw new Error(`Task failed: ${status.failMsg || status.failCode || 'Unknown error code'}`);
             } else if (status.state !== 'waiting' && status.state !== 'queuing' && status.state !== 'generating') {
                 throw new Error(`Unexpected task state: ${status.state}`);
             }
