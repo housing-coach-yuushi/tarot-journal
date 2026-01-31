@@ -4,8 +4,15 @@ import { loadIdentity } from '@/lib/clawdbot/bootstrap';
 import { DEFAULT_VOICE_ID, getVoiceById } from '@/lib/tts/voices';
 
 export async function POST(request: NextRequest) {
+    let text = '';
+    let voiceId = '';
+    let voiceName = 'George';
+
     try {
-        const { text, voiceId: requestVoiceId } = await request.json();
+        const body = await request.json();
+        text = body.text;
+        const requestVoiceId = body.voiceId;
+
         console.log(`[API/TTS] Incoming request: text="${text?.substring(0, 20)}...", voiceId=${requestVoiceId}`);
 
         if (!text) {
@@ -16,14 +23,14 @@ export async function POST(request: NextRequest) {
         }
 
         // Get voice ID from request, AI identity, or use default
-        let voiceId = requestVoiceId;
+        voiceId = requestVoiceId;
         if (!voiceId) {
             const identity = await loadIdentity();
             voiceId = identity?.voiceId || DEFAULT_VOICE_ID;
         }
         // Resolve voice name for Kie.ai API (it expects name, not ID/UUID)
         const voiceOption = getVoiceById(voiceId);
-        const voiceName = voiceOption?.name || 'George';
+        voiceName = voiceOption?.name || 'George';
 
         console.log(`[API/TTS] Process start: textLength=${text.length}, voiceId=${voiceId}, voiceName=${voiceName}`);
 
@@ -53,9 +60,15 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error) {
-        console.error('TTS API Error:', error);
+        console.error('TTS API Error Detail:', {
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+            textSnippet: text?.substring(0, 50),
+            voiceId: voiceId,
+            voiceName: voiceName
+        });
         return NextResponse.json(
-            { error: 'Failed to generate speech' },
+            { error: 'Failed to generate speech', details: error instanceof Error ? error.message : 'Unknown' },
             { status: 500 }
         );
     }
