@@ -80,6 +80,19 @@ export async function setUserProfile(userId: string, profile: UserProfile): Prom
     await redis.set(`${PREFIX}user:${userId}`, profile);
 }
 
+export async function updateUserProfile(userId: string, updates: Partial<UserProfile>): Promise<UserProfile | null> {
+    const current = await getUserProfile(userId);
+    if (!current) return null;
+
+    const updated = {
+        ...current,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+    };
+    await setUserProfile(userId, updated);
+    return updated;
+}
+
 // Conversation History operations
 export async function getConversationHistory(userId: string, limit = 50): Promise<ConversationHistory> {
     const history = await redis.get<ConversationHistory>(`${PREFIX}history:${userId}`);

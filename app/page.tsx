@@ -6,6 +6,7 @@ import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Downl
 import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
 import TarotCardComponent from '@/components/TarotCard';
+import SettingsModal from '@/components/SettingsModal';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { TarotCard } from '@/lib/tarot/cards';
 
@@ -801,73 +802,30 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
       </div>
 
       {/* Settings Modal */}
-      <AnimatePresence>
-        {showSettings && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4"
-            onClick={() => setShowSettings(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white/10 backdrop-blur-md rounded-2xl p-6 max-w-sm w-full border border-white/20"
-            >
-              <h2 className="text-lg font-medium text-white mb-4">設定</h2>
-
-              {/* Current Identity Info */}
-              {bootstrap.identity?.name && (
-                <div className="mb-6 p-3 bg-white/5 rounded-lg">
-                  <p className="text-white/60 text-xs mb-1">現在のAI</p>
-                  <p className="text-white">
-                    {bootstrap.identity.emoji} {bootstrap.identity.name}
-                  </p>
-                  <p className="text-white/50 text-sm">{bootstrap.identity.creature}</p>
-                </div>
-              )}
-
-              {/* Reset Options */}
-              <div className="space-y-3">
-                <button
-                  onClick={() => handleReset('all')}
-                  disabled={isResetting}
-                  className="w-full flex items-center gap-3 p-3 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-red-300 transition-colors disabled:opacity-50"
-                >
-                  <RotateCcw size={18} />
-                  <div className="text-left">
-                    <p className="font-medium">目覚めの儀式からやり直す</p>
-                    <p className="text-xs text-red-300/60">AIとユーザー情報を全てリセット</p>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => handleReset('user')}
-                  disabled={isResetting}
-                  className="w-full flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-lg text-white/80 transition-colors disabled:opacity-50"
-                >
-                  <RotateCcw size={18} />
-                  <div className="text-left">
-                    <p className="font-medium">自分の情報をリセット</p>
-                    <p className="text-xs text-white/40">名前と会話履歴をリセット</p>
-                  </div>
-                </button>
-              </div>
-
-              {/* Close Button */}
-              <button
-                onClick={() => setShowSettings(false)}
-                className="w-full mt-6 p-3 bg-white/10 hover:bg-white/20 rounded-lg text-white/80 transition-colors"
-              >
-                閉じる
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        userId={userId}
+        currentAiName={bootstrap.identity?.name || ''}
+        currentUserName={bootstrap.user?.name || bootstrap.user?.callName || ''}
+        currentVoiceId=""
+        onSave={(settings) => {
+          // Update local bootstrap state with new values
+          if (settings.aiName) {
+            setBootstrap(prev => ({
+              ...prev,
+              identity: { ...prev.identity, name: settings.aiName }
+            }));
+          }
+          if (settings.userName) {
+            setBootstrap(prev => ({
+              ...prev,
+              user: { ...prev.user, name: settings.userName, callName: settings.userName }
+            }));
+          }
+          log(`設定を保存しました: AI=${settings.aiName || '変更なし'}, User=${settings.userName || '変更なし'}, Voice=${settings.voiceId || '変更なし'}`);
+        }}
+      />
 
       {/* Chat Area */}
       <AnimatePresence>
