@@ -12,8 +12,16 @@ interface TarotDeckShuffleProps {
 }
 
 export function TarotDeckShuffle({ isOpen, onCardSelected, onClose }: TarotDeckShuffleProps) {
-    const [playShuffle] = useSound('/sounds/shuffle.mp3', { volume: 0.5 });
-    const [playDraw] = useSound('/sounds/draw.mp3', { volume: 0.5 });
+    const [playShuffle] = useSound('/sounds/shuffle.mp3', {
+        volume: 1.0,
+        onloaderror: (id, err) => console.error('🔊 Shuffle Load Error:', err),
+        onplayerror: (id, err) => console.error('🔊 Shuffle Play Error:', err)
+    });
+    const [playDraw] = useSound('/sounds/draw.mp3', {
+        volume: 1.0,
+        onloaderror: (id, err) => console.error('🔊 Draw Load Error:', err),
+        onplayerror: (id, err) => console.error('🔊 Draw Play Error:', err)
+    });
 
     const [step, setStep] = useState<'intro' | 'shuffling' | 'spread' | 'selecting'>('intro');
 
@@ -23,6 +31,7 @@ export function TarotDeckShuffle({ isOpen, onCardSelected, onClose }: TarotDeckS
 
             // Auto sequence
             const t1 = setTimeout(() => {
+                console.log('🔈 Shuffling sound triggered');
                 setStep('shuffling');
                 playShuffle();
             }, 600);
@@ -39,6 +48,7 @@ export function TarotDeckShuffle({ isOpen, onCardSelected, onClose }: TarotDeckS
     }, [isOpen, playShuffle]);
 
     const handleCardClick = () => {
+        console.log('🔈 Draw sound triggered');
         playDraw();
         setStep('selecting');
         // Animate selection then callback

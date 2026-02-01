@@ -15,7 +15,11 @@ import useSound from 'use-sound';
 export function TarotCardReveal({ drawnCard, onRevealComplete, className = '' }: TarotCardRevealProps) {
     const [isFlipped, setIsFlipped] = useState(false);
     const [showEffects, setShowEffects] = useState(false);
-    const [playFlip] = useSound('/sounds/flip.mp3', { volume: 0.4 });
+    const [playFlip] = useSound('/sounds/flip.mp3', {
+        volume: 1.0,
+        onloaderror: (id, err) => console.error('🔊 Flip Load Error:', err),
+        onplayerror: (id, err) => console.error('🔊 Flip Play Error:', err)
+    });
 
     // Auto flip or manual? Let's make it manual for interaction, but maybe auto for now for smooth flow
     // User wants "Wow" factor. Tap to flip is better.
@@ -23,6 +27,7 @@ export function TarotCardReveal({ drawnCard, onRevealComplete, className = '' }:
     const handleFlip = () => {
         if (isFlipped) return;
 
+        console.log('🔈 Flip sound triggered');
         playFlip();
 
         // Haptic feedback if available
