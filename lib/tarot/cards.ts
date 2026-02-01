@@ -4,6 +4,8 @@
  */
 
 export interface TarotCard {
+  suit?: string;
+  rank?: string;
   id: number;
   name: string;
   nameEn: string;
@@ -20,6 +22,14 @@ export interface TarotCard {
   element: 'fire' | 'water' | 'earth' | 'air' | 'spirit';
   color: string;  // テーマカラー（グラデーション用）
   videoFile: string;  // 動画ファイル名
+  image?: string;     // 静止画ファイルパス (new)
+}
+
+export interface DrawnCard {
+  card: TarotCard;
+  position: 'upright' | 'reversed';
+  // Helper for easier checking
+  isReversed: boolean;
 }
 
 export const MAJOR_ARCANA: TarotCard[] = [
@@ -39,7 +49,9 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "air",
     color: "#ffd700",
-    videoFile: "愚者.mp4"
+    videoFile: "愚者.mp4",
+    image: "/tarot-assets/major_00.png",
+    image: "/tarot-assets/major_00.png"
   },
   {
     id: 1,
@@ -57,7 +69,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "fire",
     color: "#ff6b35",
-    videoFile: "魔術師.mp4"
+    videoFile: "魔術師.mp4",
+    image: "/tarot-assets/major_01.png"
   },
   {
     id: 2,
@@ -75,7 +88,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "water",
     color: "#4a90d9",
-    videoFile: "女教皇.mp4"
+    videoFile: "女教皇.mp4",
+    image: "/tarot-assets/major_02.png"
   },
   {
     id: 3,
@@ -93,7 +107,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "earth",
     color: "#2ecc71",
-    videoFile: "女帝.mp4"
+    videoFile: "女帝.mp4",
+    image: "/tarot-assets/major_03.png"
   },
   {
     id: 4,
@@ -111,7 +126,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "fire",
     color: "#e74c3c",
-    videoFile: "皇帝.mp4"
+    videoFile: "皇帝.mp4",
+    image: "/tarot-assets/major_04.png"
   },
   {
     id: 5,
@@ -129,7 +145,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "earth",
     color: "#9b59b6",
-    videoFile: "教皇.mp4"
+    videoFile: "教皇.mp4",
+    image: "/tarot-assets/major_05.png"
   },
   {
     id: 6,
@@ -147,7 +164,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "air",
     color: "#ff69b4",
-    videoFile: "恋人.mp4"
+    videoFile: "恋人.mp4",
+    image: "/tarot-assets/major_06.png"
   },
   {
     id: 7,
@@ -165,7 +183,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "water",
     color: "#3498db",
-    videoFile: "戦車.mp4"
+    videoFile: "戦車.mp4",
+    image: "/tarot-assets/major_07.png"
   },
   {
     id: 8,
@@ -183,7 +202,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "fire",
     color: "#f39c12",
-    videoFile: "力.mp4"
+    videoFile: "力.mp4",
+    image: "/tarot-assets/major_08.png"
   },
   {
     id: 9,
@@ -201,7 +221,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "earth",
     color: "#7f8c8d",
-    videoFile: "隠者.mp4"
+    videoFile: "隠者.mp4",
+    image: "/tarot-assets/major_09.png"
   },
   {
     id: 10,
@@ -219,7 +240,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "fire",
     color: "#8e44ad",
-    videoFile: "運命の輪.mp4"
+    videoFile: "運命の輪.mp4",
+    image: "/tarot-assets/major_10.png"
   },
   {
     id: 11,
@@ -237,7 +259,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "air",
     color: "#1abc9c",
-    videoFile: "正義.mp4"
+    videoFile: "正義.mp4",
+    image: "/tarot-assets/major_11.png"
   },
   {
     id: 12,
@@ -255,7 +278,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "water",
     color: "#00bcd4",
-    videoFile: "吊るされた男.mp4"
+    videoFile: "吊るされた男.mp4",
+    image: "/tarot-assets/major_12.png"
   },
   {
     id: 13,
@@ -273,7 +297,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "water",
     color: "#2c3e50",
-    videoFile: "死神.mp4"
+    videoFile: "死神.mp4",
+    image: "/tarot-assets/major_13.png"
   },
   {
     id: 14,
@@ -291,7 +316,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "fire",
     color: "#e91e63",
-    videoFile: "節制.mp4"
+    videoFile: "節制.mp4",
+    image: "/tarot-assets/major_14.png"
   },
   {
     id: 15,
@@ -309,7 +335,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "earth",
     color: "#c0392b",
-    videoFile: "悪魔.mp4"
+    videoFile: "悪魔.mp4",
+    image: "/tarot-assets/major_15.png"
   },
   {
     id: 16,
@@ -327,7 +354,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "fire",
     color: "#d35400",
-    videoFile: "塔.mp4"
+    videoFile: "塔.mp4",
+    image: "/tarot-assets/major_16.png"
   },
   {
     id: 17,
@@ -345,7 +373,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "air",
     color: "#00bcd4",
-    videoFile: "星.mp4"
+    videoFile: "星.mp4",
+    image: "/tarot-assets/major_17.png"
   },
   {
     id: 18,
@@ -363,7 +392,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "water",
     color: "#9c27b0",
-    videoFile: "月.mp4"
+    videoFile: "月.mp4",
+    image: "/tarot-assets/major_18.png"
   },
   {
     id: 19,
@@ -381,7 +411,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "fire",
     color: "#ffc107",
-    videoFile: "太陽.mp4"
+    videoFile: "太陽.mp4",
+    image: "/tarot-assets/major_19.png"
   },
   {
     id: 20,
@@ -399,7 +430,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "fire",
     color: "#ff5722",
-    videoFile: "審判.mp4"
+    videoFile: "審判.mp4",
+    image: "/tarot-assets/major_20.png"
   },
   {
     id: 21,
@@ -417,7 +449,8 @@ export const MAJOR_ARCANA: TarotCard[] = [
     },
     element: "earth",
     color: "#4caf50",
-    videoFile: "世界.mp4"
+    videoFile: "世界.mp4",
+    image: "/tarot-assets/major_21.png"
   }
 ];
 
@@ -432,8 +465,12 @@ export function getCardVideoUrl(card: TarotCard): string {
  * Draw a random card (truly random, not seeded)
  */
 export function drawRandomCard(): TarotCard {
-  const index = Math.floor(Math.random() * MAJOR_ARCANA.length);
-  return MAJOR_ARCANA[index];
+  // Ensure ALL_CARDS is available (it is defined at the end of this module)
+  // Determine if we should draw from Full Deck or Major Only.
+  // For now, default to FULL DECK as per Phase 2.
+  const deck = ALL_CARDS;
+  const index = Math.floor(Math.random() * deck.length);
+  return deck[index];
 }
 
 /**
@@ -451,7 +488,7 @@ export function drawDailyCard(seed?: string): TarotCard {
  * Get card by ID
  */
 export function getCardById(id: number): TarotCard | undefined {
-  return MAJOR_ARCANA.find(card => card.id === id);
+  return ALL_CARDS.find(card => card.id === id);
 }
 
 /**
@@ -459,7 +496,7 @@ export function getCardById(id: number): TarotCard | undefined {
  */
 export function getCardByName(name: string): TarotCard | undefined {
   const normalized = name.toLowerCase().trim();
-  return MAJOR_ARCANA.find(
+  return ALL_CARDS.find(
     card =>
       card.name === name ||
       card.nameEn.toLowerCase() === normalized ||
@@ -467,3 +504,1352 @@ export function getCardByName(name: string): TarotCard | undefined {
       normalized.includes(card.name)
   );
 }
+
+export const MINOR_ARCANA: TarotCard[] = [
+  {
+    "id": 22,
+    "name": "Ace of Wands",
+    "suit": "Wands",
+    "rank": "Ace",
+    "symbol": "Ace",
+    "keywords": [
+      "Wands",
+      "Ace",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_01.png",
+    "meaning": {
+      "upright": "The Ace of Wands signifies the essence of Fire in the realm of Ace.",
+      "reversed": "Reversed, the Ace of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Ace of Wands influence your start today?",
+      "evening": "In what ways did you experience the Ace of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 23,
+    "name": "Two of Wands",
+    "suit": "Wands",
+    "rank": "Two",
+    "symbol": "Two",
+    "keywords": [
+      "Wands",
+      "Two",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_02.png",
+    "meaning": {
+      "upright": "The Two of Wands signifies the essence of Fire in the realm of Two.",
+      "reversed": "Reversed, the Two of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Two of Wands influence your start today?",
+      "evening": "In what ways did you experience the Two of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 24,
+    "name": "Three of Wands",
+    "suit": "Wands",
+    "rank": "Three",
+    "symbol": "Three",
+    "keywords": [
+      "Wands",
+      "Three",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_03.png",
+    "meaning": {
+      "upright": "The Three of Wands signifies the essence of Fire in the realm of Three.",
+      "reversed": "Reversed, the Three of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Three of Wands influence your start today?",
+      "evening": "In what ways did you experience the Three of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 25,
+    "name": "Four of Wands",
+    "suit": "Wands",
+    "rank": "Four",
+    "symbol": "Four",
+    "keywords": [
+      "Wands",
+      "Four",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_04.png",
+    "meaning": {
+      "upright": "The Four of Wands signifies the essence of Fire in the realm of Four.",
+      "reversed": "Reversed, the Four of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Four of Wands influence your start today?",
+      "evening": "In what ways did you experience the Four of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 26,
+    "name": "Five of Wands",
+    "suit": "Wands",
+    "rank": "Five",
+    "symbol": "Five",
+    "keywords": [
+      "Wands",
+      "Five",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_05.png",
+    "meaning": {
+      "upright": "The Five of Wands signifies the essence of Fire in the realm of Five.",
+      "reversed": "Reversed, the Five of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Five of Wands influence your start today?",
+      "evening": "In what ways did you experience the Five of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 27,
+    "name": "Six of Wands",
+    "suit": "Wands",
+    "rank": "Six",
+    "symbol": "Six",
+    "keywords": [
+      "Wands",
+      "Six",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_06.png",
+    "meaning": {
+      "upright": "The Six of Wands signifies the essence of Fire in the realm of Six.",
+      "reversed": "Reversed, the Six of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Six of Wands influence your start today?",
+      "evening": "In what ways did you experience the Six of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 28,
+    "name": "Seven of Wands",
+    "suit": "Wands",
+    "rank": "Seven",
+    "symbol": "Seven",
+    "keywords": [
+      "Wands",
+      "Seven",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_07.png",
+    "meaning": {
+      "upright": "The Seven of Wands signifies the essence of Fire in the realm of Seven.",
+      "reversed": "Reversed, the Seven of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Seven of Wands influence your start today?",
+      "evening": "In what ways did you experience the Seven of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 29,
+    "name": "Eight of Wands",
+    "suit": "Wands",
+    "rank": "Eight",
+    "symbol": "Eight",
+    "keywords": [
+      "Wands",
+      "Eight",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_08.png",
+    "meaning": {
+      "upright": "The Eight of Wands signifies the essence of Fire in the realm of Eight.",
+      "reversed": "Reversed, the Eight of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Eight of Wands influence your start today?",
+      "evening": "In what ways did you experience the Eight of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 30,
+    "name": "Nine of Wands",
+    "suit": "Wands",
+    "rank": "Nine",
+    "symbol": "Nine",
+    "keywords": [
+      "Wands",
+      "Nine",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_09.png",
+    "meaning": {
+      "upright": "The Nine of Wands signifies the essence of Fire in the realm of Nine.",
+      "reversed": "Reversed, the Nine of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Nine of Wands influence your start today?",
+      "evening": "In what ways did you experience the Nine of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 31,
+    "name": "Ten of Wands",
+    "suit": "Wands",
+    "rank": "Ten",
+    "symbol": "Ten",
+    "keywords": [
+      "Wands",
+      "Ten",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_10.png",
+    "meaning": {
+      "upright": "The Ten of Wands signifies the essence of Fire in the realm of Ten.",
+      "reversed": "Reversed, the Ten of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Ten of Wands influence your start today?",
+      "evening": "In what ways did you experience the Ten of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 32,
+    "name": "Page of Wands",
+    "suit": "Wands",
+    "rank": "Page",
+    "symbol": "Page",
+    "keywords": [
+      "Wands",
+      "Page",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_11.png",
+    "meaning": {
+      "upright": "The Page of Wands signifies the essence of Fire in the realm of Page.",
+      "reversed": "Reversed, the Page of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Page of Wands influence your start today?",
+      "evening": "In what ways did you experience the Page of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 33,
+    "name": "Knight of Wands",
+    "suit": "Wands",
+    "rank": "Knight",
+    "symbol": "Knight",
+    "keywords": [
+      "Wands",
+      "Knight",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_12.png",
+    "meaning": {
+      "upright": "The Knight of Wands signifies the essence of Fire in the realm of Knight.",
+      "reversed": "Reversed, the Knight of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Knight of Wands influence your start today?",
+      "evening": "In what ways did you experience the Knight of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 34,
+    "name": "Queen of Wands",
+    "suit": "Wands",
+    "rank": "Queen",
+    "symbol": "Queen",
+    "keywords": [
+      "Wands",
+      "Queen",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_13.png",
+    "meaning": {
+      "upright": "The Queen of Wands signifies the essence of Fire in the realm of Queen.",
+      "reversed": "Reversed, the Queen of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Queen of Wands influence your start today?",
+      "evening": "In what ways did you experience the Queen of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 35,
+    "name": "King of Wands",
+    "suit": "Wands",
+    "rank": "King",
+    "symbol": "King",
+    "keywords": [
+      "Wands",
+      "King",
+      "Fire"
+    ],
+    "image": "/tarot-assets/wands_14.png",
+    "meaning": {
+      "upright": "The King of Wands signifies the essence of Fire in the realm of King.",
+      "reversed": "Reversed, the King of Wands suggests a blockage or internal focus on Fire energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the King of Wands influence your start today?",
+      "evening": "In what ways did you experience the King of Wands today?"
+    },
+    "element": "Fire",
+    "themeColor": "#E34234",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 36,
+    "name": "Ace of Cups",
+    "suit": "Cups",
+    "rank": "Ace",
+    "symbol": "Ace",
+    "keywords": [
+      "Cups",
+      "Ace",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_01.png",
+    "meaning": {
+      "upright": "The Ace of Cups signifies the essence of Water in the realm of Ace.",
+      "reversed": "Reversed, the Ace of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Ace of Cups influence your start today?",
+      "evening": "In what ways did you experience the Ace of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 37,
+    "name": "Two of Cups",
+    "suit": "Cups",
+    "rank": "Two",
+    "symbol": "Two",
+    "keywords": [
+      "Cups",
+      "Two",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_02.png",
+    "meaning": {
+      "upright": "The Two of Cups signifies the essence of Water in the realm of Two.",
+      "reversed": "Reversed, the Two of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Two of Cups influence your start today?",
+      "evening": "In what ways did you experience the Two of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 38,
+    "name": "Three of Cups",
+    "suit": "Cups",
+    "rank": "Three",
+    "symbol": "Three",
+    "keywords": [
+      "Cups",
+      "Three",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_03.png",
+    "meaning": {
+      "upright": "The Three of Cups signifies the essence of Water in the realm of Three.",
+      "reversed": "Reversed, the Three of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Three of Cups influence your start today?",
+      "evening": "In what ways did you experience the Three of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 39,
+    "name": "Four of Cups",
+    "suit": "Cups",
+    "rank": "Four",
+    "symbol": "Four",
+    "keywords": [
+      "Cups",
+      "Four",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_04.png",
+    "meaning": {
+      "upright": "The Four of Cups signifies the essence of Water in the realm of Four.",
+      "reversed": "Reversed, the Four of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Four of Cups influence your start today?",
+      "evening": "In what ways did you experience the Four of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 40,
+    "name": "Five of Cups",
+    "suit": "Cups",
+    "rank": "Five",
+    "symbol": "Five",
+    "keywords": [
+      "Cups",
+      "Five",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_05.png",
+    "meaning": {
+      "upright": "The Five of Cups signifies the essence of Water in the realm of Five.",
+      "reversed": "Reversed, the Five of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Five of Cups influence your start today?",
+      "evening": "In what ways did you experience the Five of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 41,
+    "name": "Six of Cups",
+    "suit": "Cups",
+    "rank": "Six",
+    "symbol": "Six",
+    "keywords": [
+      "Cups",
+      "Six",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_06.png",
+    "meaning": {
+      "upright": "The Six of Cups signifies the essence of Water in the realm of Six.",
+      "reversed": "Reversed, the Six of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Six of Cups influence your start today?",
+      "evening": "In what ways did you experience the Six of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 42,
+    "name": "Seven of Cups",
+    "suit": "Cups",
+    "rank": "Seven",
+    "symbol": "Seven",
+    "keywords": [
+      "Cups",
+      "Seven",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_07.png",
+    "meaning": {
+      "upright": "The Seven of Cups signifies the essence of Water in the realm of Seven.",
+      "reversed": "Reversed, the Seven of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Seven of Cups influence your start today?",
+      "evening": "In what ways did you experience the Seven of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 43,
+    "name": "Eight of Cups",
+    "suit": "Cups",
+    "rank": "Eight",
+    "symbol": "Eight",
+    "keywords": [
+      "Cups",
+      "Eight",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_08.png",
+    "meaning": {
+      "upright": "The Eight of Cups signifies the essence of Water in the realm of Eight.",
+      "reversed": "Reversed, the Eight of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Eight of Cups influence your start today?",
+      "evening": "In what ways did you experience the Eight of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 44,
+    "name": "Nine of Cups",
+    "suit": "Cups",
+    "rank": "Nine",
+    "symbol": "Nine",
+    "keywords": [
+      "Cups",
+      "Nine",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_09.png",
+    "meaning": {
+      "upright": "The Nine of Cups signifies the essence of Water in the realm of Nine.",
+      "reversed": "Reversed, the Nine of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Nine of Cups influence your start today?",
+      "evening": "In what ways did you experience the Nine of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 45,
+    "name": "Ten of Cups",
+    "suit": "Cups",
+    "rank": "Ten",
+    "symbol": "Ten",
+    "keywords": [
+      "Cups",
+      "Ten",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_10.png",
+    "meaning": {
+      "upright": "The Ten of Cups signifies the essence of Water in the realm of Ten.",
+      "reversed": "Reversed, the Ten of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Ten of Cups influence your start today?",
+      "evening": "In what ways did you experience the Ten of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 46,
+    "name": "Page of Cups",
+    "suit": "Cups",
+    "rank": "Page",
+    "symbol": "Page",
+    "keywords": [
+      "Cups",
+      "Page",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_11.png",
+    "meaning": {
+      "upright": "The Page of Cups signifies the essence of Water in the realm of Page.",
+      "reversed": "Reversed, the Page of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Page of Cups influence your start today?",
+      "evening": "In what ways did you experience the Page of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 47,
+    "name": "Knight of Cups",
+    "suit": "Cups",
+    "rank": "Knight",
+    "symbol": "Knight",
+    "keywords": [
+      "Cups",
+      "Knight",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_12.png",
+    "meaning": {
+      "upright": "The Knight of Cups signifies the essence of Water in the realm of Knight.",
+      "reversed": "Reversed, the Knight of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Knight of Cups influence your start today?",
+      "evening": "In what ways did you experience the Knight of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 48,
+    "name": "Queen of Cups",
+    "suit": "Cups",
+    "rank": "Queen",
+    "symbol": "Queen",
+    "keywords": [
+      "Cups",
+      "Queen",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_13.png",
+    "meaning": {
+      "upright": "The Queen of Cups signifies the essence of Water in the realm of Queen.",
+      "reversed": "Reversed, the Queen of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Queen of Cups influence your start today?",
+      "evening": "In what ways did you experience the Queen of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 49,
+    "name": "King of Cups",
+    "suit": "Cups",
+    "rank": "King",
+    "symbol": "King",
+    "keywords": [
+      "Cups",
+      "King",
+      "Water"
+    ],
+    "image": "/tarot-assets/cups_14.png",
+    "meaning": {
+      "upright": "The King of Cups signifies the essence of Water in the realm of King.",
+      "reversed": "Reversed, the King of Cups suggests a blockage or internal focus on Water energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the King of Cups influence your start today?",
+      "evening": "In what ways did you experience the King of Cups today?"
+    },
+    "element": "Water",
+    "themeColor": "#4169E1",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 50,
+    "name": "Ace of Swords",
+    "suit": "Swords",
+    "rank": "Ace",
+    "symbol": "Ace",
+    "keywords": [
+      "Swords",
+      "Ace",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_01.png",
+    "meaning": {
+      "upright": "The Ace of Swords signifies the essence of Air in the realm of Ace.",
+      "reversed": "Reversed, the Ace of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Ace of Swords influence your start today?",
+      "evening": "In what ways did you experience the Ace of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 51,
+    "name": "Two of Swords",
+    "suit": "Swords",
+    "rank": "Two",
+    "symbol": "Two",
+    "keywords": [
+      "Swords",
+      "Two",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_02.png",
+    "meaning": {
+      "upright": "The Two of Swords signifies the essence of Air in the realm of Two.",
+      "reversed": "Reversed, the Two of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Two of Swords influence your start today?",
+      "evening": "In what ways did you experience the Two of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 52,
+    "name": "Three of Swords",
+    "suit": "Swords",
+    "rank": "Three",
+    "symbol": "Three",
+    "keywords": [
+      "Swords",
+      "Three",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_03.png",
+    "meaning": {
+      "upright": "The Three of Swords signifies the essence of Air in the realm of Three.",
+      "reversed": "Reversed, the Three of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Three of Swords influence your start today?",
+      "evening": "In what ways did you experience the Three of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 53,
+    "name": "Four of Swords",
+    "suit": "Swords",
+    "rank": "Four",
+    "symbol": "Four",
+    "keywords": [
+      "Swords",
+      "Four",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_04.png",
+    "meaning": {
+      "upright": "The Four of Swords signifies the essence of Air in the realm of Four.",
+      "reversed": "Reversed, the Four of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Four of Swords influence your start today?",
+      "evening": "In what ways did you experience the Four of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 54,
+    "name": "Five of Swords",
+    "suit": "Swords",
+    "rank": "Five",
+    "symbol": "Five",
+    "keywords": [
+      "Swords",
+      "Five",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_05.png",
+    "meaning": {
+      "upright": "The Five of Swords signifies the essence of Air in the realm of Five.",
+      "reversed": "Reversed, the Five of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Five of Swords influence your start today?",
+      "evening": "In what ways did you experience the Five of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 55,
+    "name": "Six of Swords",
+    "suit": "Swords",
+    "rank": "Six",
+    "symbol": "Six",
+    "keywords": [
+      "Swords",
+      "Six",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_06.png",
+    "meaning": {
+      "upright": "The Six of Swords signifies the essence of Air in the realm of Six.",
+      "reversed": "Reversed, the Six of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Six of Swords influence your start today?",
+      "evening": "In what ways did you experience the Six of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 56,
+    "name": "Seven of Swords",
+    "suit": "Swords",
+    "rank": "Seven",
+    "symbol": "Seven",
+    "keywords": [
+      "Swords",
+      "Seven",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_07.png",
+    "meaning": {
+      "upright": "The Seven of Swords signifies the essence of Air in the realm of Seven.",
+      "reversed": "Reversed, the Seven of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Seven of Swords influence your start today?",
+      "evening": "In what ways did you experience the Seven of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 57,
+    "name": "Eight of Swords",
+    "suit": "Swords",
+    "rank": "Eight",
+    "symbol": "Eight",
+    "keywords": [
+      "Swords",
+      "Eight",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_08.png",
+    "meaning": {
+      "upright": "The Eight of Swords signifies the essence of Air in the realm of Eight.",
+      "reversed": "Reversed, the Eight of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Eight of Swords influence your start today?",
+      "evening": "In what ways did you experience the Eight of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 58,
+    "name": "Nine of Swords",
+    "suit": "Swords",
+    "rank": "Nine",
+    "symbol": "Nine",
+    "keywords": [
+      "Swords",
+      "Nine",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_09.png",
+    "meaning": {
+      "upright": "The Nine of Swords signifies the essence of Air in the realm of Nine.",
+      "reversed": "Reversed, the Nine of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Nine of Swords influence your start today?",
+      "evening": "In what ways did you experience the Nine of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 59,
+    "name": "Ten of Swords",
+    "suit": "Swords",
+    "rank": "Ten",
+    "symbol": "Ten",
+    "keywords": [
+      "Swords",
+      "Ten",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_10.png",
+    "meaning": {
+      "upright": "The Ten of Swords signifies the essence of Air in the realm of Ten.",
+      "reversed": "Reversed, the Ten of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Ten of Swords influence your start today?",
+      "evening": "In what ways did you experience the Ten of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 60,
+    "name": "Page of Swords",
+    "suit": "Swords",
+    "rank": "Page",
+    "symbol": "Page",
+    "keywords": [
+      "Swords",
+      "Page",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_11.png",
+    "meaning": {
+      "upright": "The Page of Swords signifies the essence of Air in the realm of Page.",
+      "reversed": "Reversed, the Page of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Page of Swords influence your start today?",
+      "evening": "In what ways did you experience the Page of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 61,
+    "name": "Knight of Swords",
+    "suit": "Swords",
+    "rank": "Knight",
+    "symbol": "Knight",
+    "keywords": [
+      "Swords",
+      "Knight",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_12.png",
+    "meaning": {
+      "upright": "The Knight of Swords signifies the essence of Air in the realm of Knight.",
+      "reversed": "Reversed, the Knight of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Knight of Swords influence your start today?",
+      "evening": "In what ways did you experience the Knight of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 62,
+    "name": "Queen of Swords",
+    "suit": "Swords",
+    "rank": "Queen",
+    "symbol": "Queen",
+    "keywords": [
+      "Swords",
+      "Queen",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_13.png",
+    "meaning": {
+      "upright": "The Queen of Swords signifies the essence of Air in the realm of Queen.",
+      "reversed": "Reversed, the Queen of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Queen of Swords influence your start today?",
+      "evening": "In what ways did you experience the Queen of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 63,
+    "name": "King of Swords",
+    "suit": "Swords",
+    "rank": "King",
+    "symbol": "King",
+    "keywords": [
+      "Swords",
+      "King",
+      "Air"
+    ],
+    "image": "/tarot-assets/swords_14.png",
+    "meaning": {
+      "upright": "The King of Swords signifies the essence of Air in the realm of King.",
+      "reversed": "Reversed, the King of Swords suggests a blockage or internal focus on Air energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the King of Swords influence your start today?",
+      "evening": "In what ways did you experience the King of Swords today?"
+    },
+    "element": "Air",
+    "themeColor": "#C0C0C0",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 64,
+    "name": "Ace of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Ace",
+    "symbol": "Ace",
+    "keywords": [
+      "Pentacles",
+      "Ace",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_01.png",
+    "meaning": {
+      "upright": "The Ace of Pentacles signifies the essence of Earth in the realm of Ace.",
+      "reversed": "Reversed, the Ace of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Ace of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Ace of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 65,
+    "name": "Two of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Two",
+    "symbol": "Two",
+    "keywords": [
+      "Pentacles",
+      "Two",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_02.png",
+    "meaning": {
+      "upright": "The Two of Pentacles signifies the essence of Earth in the realm of Two.",
+      "reversed": "Reversed, the Two of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Two of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Two of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 66,
+    "name": "Three of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Three",
+    "symbol": "Three",
+    "keywords": [
+      "Pentacles",
+      "Three",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_03.png",
+    "meaning": {
+      "upright": "The Three of Pentacles signifies the essence of Earth in the realm of Three.",
+      "reversed": "Reversed, the Three of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Three of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Three of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 67,
+    "name": "Four of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Four",
+    "symbol": "Four",
+    "keywords": [
+      "Pentacles",
+      "Four",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_04.png",
+    "meaning": {
+      "upright": "The Four of Pentacles signifies the essence of Earth in the realm of Four.",
+      "reversed": "Reversed, the Four of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Four of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Four of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 68,
+    "name": "Five of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Five",
+    "symbol": "Five",
+    "keywords": [
+      "Pentacles",
+      "Five",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_05.png",
+    "meaning": {
+      "upright": "The Five of Pentacles signifies the essence of Earth in the realm of Five.",
+      "reversed": "Reversed, the Five of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Five of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Five of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 69,
+    "name": "Six of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Six",
+    "symbol": "Six",
+    "keywords": [
+      "Pentacles",
+      "Six",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_06.png",
+    "meaning": {
+      "upright": "The Six of Pentacles signifies the essence of Earth in the realm of Six.",
+      "reversed": "Reversed, the Six of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Six of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Six of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 70,
+    "name": "Seven of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Seven",
+    "symbol": "Seven",
+    "keywords": [
+      "Pentacles",
+      "Seven",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_07.png",
+    "meaning": {
+      "upright": "The Seven of Pentacles signifies the essence of Earth in the realm of Seven.",
+      "reversed": "Reversed, the Seven of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Seven of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Seven of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 71,
+    "name": "Eight of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Eight",
+    "symbol": "Eight",
+    "keywords": [
+      "Pentacles",
+      "Eight",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_08.png",
+    "meaning": {
+      "upright": "The Eight of Pentacles signifies the essence of Earth in the realm of Eight.",
+      "reversed": "Reversed, the Eight of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Eight of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Eight of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 72,
+    "name": "Nine of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Nine",
+    "symbol": "Nine",
+    "keywords": [
+      "Pentacles",
+      "Nine",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_09.png",
+    "meaning": {
+      "upright": "The Nine of Pentacles signifies the essence of Earth in the realm of Nine.",
+      "reversed": "Reversed, the Nine of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Nine of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Nine of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 73,
+    "name": "Ten of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Ten",
+    "symbol": "Ten",
+    "keywords": [
+      "Pentacles",
+      "Ten",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_10.png",
+    "meaning": {
+      "upright": "The Ten of Pentacles signifies the essence of Earth in the realm of Ten.",
+      "reversed": "Reversed, the Ten of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Ten of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Ten of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 74,
+    "name": "Page of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Page",
+    "symbol": "Page",
+    "keywords": [
+      "Pentacles",
+      "Page",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_11.png",
+    "meaning": {
+      "upright": "The Page of Pentacles signifies the essence of Earth in the realm of Page.",
+      "reversed": "Reversed, the Page of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Page of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Page of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 75,
+    "name": "Knight of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Knight",
+    "symbol": "Knight",
+    "keywords": [
+      "Pentacles",
+      "Knight",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_12.png",
+    "meaning": {
+      "upright": "The Knight of Pentacles signifies the essence of Earth in the realm of Knight.",
+      "reversed": "Reversed, the Knight of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Knight of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Knight of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 76,
+    "name": "Queen of Pentacles",
+    "suit": "Pentacles",
+    "rank": "Queen",
+    "symbol": "Queen",
+    "keywords": [
+      "Pentacles",
+      "Queen",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_13.png",
+    "meaning": {
+      "upright": "The Queen of Pentacles signifies the essence of Earth in the realm of Queen.",
+      "reversed": "Reversed, the Queen of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the Queen of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the Queen of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  },
+  {
+    "id": 77,
+    "name": "King of Pentacles",
+    "suit": "Pentacles",
+    "rank": "King",
+    "symbol": "King",
+    "keywords": [
+      "Pentacles",
+      "King",
+      "Earth"
+    ],
+    "image": "/tarot-assets/pentacles_14.png",
+    "meaning": {
+      "upright": "The King of Pentacles signifies the essence of Earth in the realm of King.",
+      "reversed": "Reversed, the King of Pentacles suggests a blockage or internal focus on Earth energy."
+    },
+    "reflection": {
+      "morning": "How does the energy of the King of Pentacles influence your start today?",
+      "evening": "In what ways did you experience the King of Pentacles today?"
+    },
+    "element": "Earth",
+    "themeColor": "#228B22",
+    "videoFile": "placeholder.mp4"
+  }
+];
+
+export const ALL_CARDS: TarotCard[] = [...MAJOR_ARCANA, ...MINOR_ARCANA];

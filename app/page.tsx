@@ -5,17 +5,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings, Share2 } from 'lucide-react';
 import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
-import TarotCardComponent from '@/components/TarotCard';
+import { TarotCardReveal } from '@/components/TarotCardReveal';
+import { TarotDeckShuffle } from '@/components/TarotDeckShuffle';
 import SettingsModal from '@/components/SettingsModal';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
-import { TarotCard } from '@/lib/tarot/cards';
+import { TarotCard, DrawnCard, drawRandomCard } from '@/lib/tarot/cards';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant' | 'tarot';
   content: string;
   timestamp: Date;
-  card?: TarotCard;  // For tarot card messages
+  card?: DrawnCard;
 }
 
 interface BootstrapState {
@@ -75,6 +76,7 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
+  const [isShuffleOpen, setIsShuffleOpen] = useState(false);
 
   // BGM playback control
   useEffect(() => {
@@ -482,7 +484,7 @@ export default function Home() {
           history: messages.map(m => ({
             role: m.role === 'tarot' ? 'user' : m.role,  // Convert tarot to user for API
             content: m.role === 'tarot' && m.card
-              ? `[カード: ${m.card.name} ${m.card.symbol}]`
+              ? `[カード: ${m.card.card.name} ${m.card.card.symbol} (${m.card.isReversed ? '逆位置' : '正位置'})]`
               : m.content,
           })),
         }),
@@ -612,6 +614,38 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
     }
   }, [messages, isSummarizing, log]);
 
+  // Handle actual tarot draw after shuffle
+  const processTarotDraw = useCallback(() => {
+    setIsShuffleOpen(false);
+
+    const card = drawRandomCard();
+    const isReversed = Math.random() < 0.5;
+    const drawnCard: DrawnCard = {
+      card,
+      position: isReversed ? 'reversed' : 'upright',
+      isReversed
+    };
+
+    const tarotMessage: Message = {
+      id: Date.now().toString(),
+      role: 'tarot',
+      content: '',
+      timestamp: new Date(),
+      card: drawnCard,
+    };
+    setMessages(prev => [...prev, tarotMessage]);
+
+    // Send card info to AI
+    const hour = new Date().getHours();
+    const timeOfDay = (hour >= 5 && hour < 12) ? '朝' : '夜';
+    const reflection = isReversed ? card.meaning.reversed : (
+      (hour >= 5 && hour < 12) ? card.reflection.morning : card.reflection.evening
+    );
+    const positionText = isReversed ? '逆位置' : '正位置';
+    const cardContext = `[タロットカードを引きました: ${card.name} ${card.symbol} - ${positionText}]\nキーワード: ${card.keywords.join('、')}\n問い: ${reflection}\n（${timeOfDay}のジャーナリングセッション）`;
+    sendMessage(cardContext, false);
+  }, [sendMessage]);
+
   // Reset function
   const handleReset = useCallback(async (resetType: 'all' | 'ai' | 'user') => {
     const confirmMessage = resetType === 'all'
@@ -666,7 +700,11 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
       text += messages.map(m => {
         const role = m.role === 'assistant' ? 'カイ' : (m.role === 'user' ? (bootstrap.user?.callName || '私') : 'タロット');
         let content = m.content;
-        if (m.role === 'tarot' && m.card) content = `🎴 ${m.card.name}\n${content}`;
+        if (m.role === 'tarot' && m.card) {
+          const cardName = m.card.card.name;
+          const position = m.card.isReversed ? '逆位置' : '正位置';
+          content = `🎴 ${cardName} (${position})\n${content}`;
+        }
         return `${role}:\n${content}\n`;
       }).join('\n');
     }
@@ -922,8 +960,10 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   {msg.role === 'tarot' && msg.card ? (
-                    // Tarot card inline display
-                    <TarotCardComponent card={msg.card} />
+                    // Tarot card inline display with reveal effect
+                    <div className="w-full max-w-[280px]">
+                      <TarotCardReveal drawnCard={msg.card} className="shadow-lg" />
+                    </div>
                   ) : (
                     <div
                       className={`max-w-[85%] px-4 py-3 rounded-2xl ${msg.role === 'user'
@@ -1057,27 +1097,17 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
             {/* Tarot Draw Button */}
             <div className="flex-1 flex justify-end">
               <TarotDrawButton
-                disabled={isSending || isListening}
-                onCardDrawn={(card: TarotCard) => {
-                  // Add tarot card as a message in chat
-                  const tarotMessage: Message = {
-                    id: Date.now().toString(),
-                    role: 'tarot',
-                    content: '',
-                    timestamp: new Date(),
-                    card: card,
-                  };
-                  setMessages(prev => [...prev, tarotMessage]);
-
-                  // Send card info to AI for context-aware response (hidden from chat)
-                  const hour = new Date().getHours();
-                  const timeOfDay = (hour >= 5 && hour < 12) ? '朝' : '夜';
-                  const reflection = (hour >= 5 && hour < 12) ? card.reflection.morning : card.reflection.evening;
-                  const cardContext = `[タロットカードを引きました: ${card.name} ${card.symbol}]\nキーワード: ${card.keywords.join('、')}\n問い: ${reflection}\n（${timeOfDay}のジャーナリングセッション）`;
-                  sendMessage(cardContext, false);  // false = don't show in chat
-                }}
+                disabled={isSending || isListening || isShuffleOpen}
+                onCardDrawn={() => setIsShuffleOpen(true)}
               />
             </div>
+
+            <TarotDeckShuffle
+              isOpen={isShuffleOpen}
+              onCardSelected={processTarotDraw}
+              onClose={() => setIsShuffleOpen(false)}
+            />
+
 
             {/* Mic Button - Push to talk (Center) */}
             <motion.div className="relative">
@@ -1179,6 +1209,6 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         loop
         style={{ display: 'none' }}
       />
-    </main>
+    </main >
   );
 }

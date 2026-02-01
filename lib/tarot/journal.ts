@@ -3,7 +3,7 @@
  */
 
 import { redis } from '@/lib/db/redis';
-import { MAJOR_ARCANA, type TarotCard } from './cards';
+import { ALL_CARDS, type TarotCard } from './cards';
 
 const PREFIX = 'tarot-journal:';
 
@@ -54,8 +54,8 @@ export function generateDailyCard(userId: string, date: string = getTodayDate())
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash; // Convert to 32bit integer
   }
-  const index = Math.abs(hash) % MAJOR_ARCANA.length;
-  return MAJOR_ARCANA[index];
+  const index = Math.abs(hash) % ALL_CARDS.length;
+  return ALL_CARDS[index];
 }
 
 /**
@@ -84,7 +84,7 @@ export async function drawTodayCard(userId: string): Promise<{ card: TarotCard; 
   // Check if already drawn
   const existing = await getTodayReading(userId);
   if (existing) {
-    const card = MAJOR_ARCANA.find(c => c.id === existing.cardId)!;
+    const card = ALL_CARDS.find(c => c.id === existing.cardId)!;
     return { card, reading: existing, isNew: false };
   }
 
