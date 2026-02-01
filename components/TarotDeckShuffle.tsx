@@ -149,10 +149,10 @@ export function TarotDeckShuffle({ isOpen, onCardSelected, onClose }: TarotDeckS
 
             <div className="mt-12 text-center" onClick={(e) => e.stopPropagation()}>
                 <h2 className="text-white text-2xl font-serif tracking-widest mb-2 font-noto-serif-jp">
-                    {step === 'shuffling' ? 'エネルギーを浄化中...' : step === 'spread' ? 'カードを1枚選んでください' : 'デッキを準備中...'}
+                    {step === 'shuffling' ? 'カードを準備しています...' : step === 'spread' ? '気になるカードを選んでください' : '準備中...'}
                 </h2>
-                <p className="text-white/40 text-sm">
-                    {step === 'spread' ? '自分の直感を信じて' : ''}
+                <p className="text-white/40 text-sm font-noto-serif-jp">
+                    {step === 'spread' ? '今のあなたに必要な視点は何でしょうか？' : ''}
                 </p>
             </div>
 
