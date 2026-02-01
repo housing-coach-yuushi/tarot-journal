@@ -71,15 +71,6 @@ export default function SettingsModal({
         }
     }, [isOpen, userId]);
 
-    // Update local state when props change
-    useEffect(() => {
-        setAiName(currentAiName);
-        setUserName(currentUserName);
-        setVoiceId(currentVoiceId);
-        setShowDebug(currentShowDebug);
-        setBgmEnabled(currentBgmEnabled);
-    }, [currentAiName, currentUserName, currentVoiceId, currentShowDebug, currentBgmEnabled]);
-
     const handleSave = async () => {
         setIsSaving(true);
         setError(null);

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings } from 'lucide-react';
+import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings, Share2 } from 'lucide-react';
 import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
 import TarotCardComponent from '@/components/TarotCard';
@@ -525,7 +525,7 @@ export default function Home() {
     }
   }, [messages, userId, isSending, log, stopTTS, playTTS]);
 
-  // Save and Download journal
+  // Save to Obsidian
   const handleSave = useCallback(async () => {
     if (messages.length === 0 || isSummarizing) return;
 
@@ -533,37 +533,64 @@ export default function Home() {
     log('要約中...');
 
     try {
-      const response = await fetch('/api/journal/summarize', {
+      // Step 1: Get summary from AI
+      const summarizeResponse = await fetch('/api/journal/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: messages.map(m => ({ role: m.role, content: m.content })),
-          userId: 'default', // Using default for now
+          userId: 'default',
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        log('要約完了: ' + data.title);
+      if (!summarizeResponse.ok) {
+        log('要約失敗');
+        return;
+      }
 
-        // Create download file (Obsidian style Markdown)
+      const summaryData = await summarizeResponse.json();
+      log('要約完了: ' + summaryData.title);
+
+      // Step 2: Save to Obsidian
+      log('Obsidianに保存中...');
+      const saveResponse = await fetch('/api/journal/save-to-obsidian', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: summaryData.title,
+          summary: summaryData.summary,
+          messages: messages.map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+
+      if (saveResponse.ok) {
+        const saveData = await saveResponse.json();
+        log('Obsidian保存完了: ' + saveData.filename);
+        alert(`✅ Obsidianに保存しました\n\n📁 ${saveData.filename}\n📝 ${summaryData.title}`);
+      } else {
+        const errorData = await saveResponse.json();
+        log('Obsidian保存失敗: ' + (errorData.details || errorData.error));
+        alert('Obsidianへの保存に失敗しました。ダウンロードします。');
+
+        // Fallback: Download file
         const dateStr = new Date().toISOString().split('T')[0];
         const markdownContent = `---
-title: "${data.title}"
+title: "${summaryData.title}"
 date: ${dateStr}
-tags: [tarot, journal]
+tags:
+  - tarot
+  - journal
 ---
 
-# ${data.title}
+# ${summaryData.title}
 **日付:** ${dateStr}
 
 ## 要約
-${data.summary}
+${summaryData.summary}
 
 ## 対話履歴
 ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content}`).join('\n\n')}
 `;
-
         const blob = new Blob([markdownContent], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -572,11 +599,11 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
 
-        alert(`保存しました：${dateStr}.md\n\n${data.title}`);
-      } else {
-        log('要約失敗');
+        // Delay revoke to ensure download starts
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+        }, 1000);
       }
     } catch (error) {
       log('保存エラー: ' + (error as Error).message);
@@ -622,6 +649,51 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
       setIsResetting(false);
     }
   }, [userId, log]);
+
+  // Share to native apps (Web Share API)
+  const handleShare = useCallback(async () => {
+    // Generate content for sharing
+    let title = '今日のタロットジャーナル';
+    let text = '';
+
+    if (messages.length > 0) {
+      // Create a quick text representation
+      const dateStr = new Date().toLocaleDateString('ja-JP');
+      text = `【${dateStr}のタロットジャーナル】\n\n`;
+
+      // Add summary if available (this assumes summary is stored somewhere or generated on fly)
+      // For now, simpler approach: just share the conversation history
+      text += messages.map(m => {
+        const role = m.role === 'assistant' ? 'カイ' : (m.role === 'user' ? (bootstrap.user?.callName || '私') : 'タロット');
+        let content = m.content;
+        if (m.role === 'tarot' && m.card) content = `🎴 ${m.card.name}\n${content}`;
+        return `${role}:\n${content}\n`;
+      }).join('\n');
+    }
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: title,
+          text: text,
+        });
+        log('共有メニューを表示しました');
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          log('共有エラー: ' + (error as Error).message);
+        }
+      }
+    } else {
+      // Fallback: Copy to clipboard
+      try {
+        await navigator.clipboard.writeText(text);
+        alert('クリップボードにコピーしました！\nメモアプリなどに貼り付けてください。');
+        log('クリップボードにコピー');
+      } catch (err) {
+        log('コピー失敗');
+      }
+    }
+  }, [messages, log, bootstrap.user]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1060,8 +1132,8 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
               </motion.button>
             </motion.div>
 
-            {/* Save (Journal) Button */}
-            <div className="flex-1 flex justify-start">
+            {/* Save (Journal) & Share Buttons */}
+            <div className="flex-1 flex justify-start gap-4">
               <motion.button
                 onClick={handleSave}
                 disabled={isSending || messages.length === 0 || isSummarizing}
@@ -1079,6 +1151,16 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 ) : (
                   <Download size={24} />
                 )}
+              </motion.button>
+
+              <motion.button
+                onClick={handleShare}
+                disabled={isSending || messages.length === 0}
+                whileTap={{ scale: 0.95 }}
+                title="スマホに共有"
+                className={`p-4 rounded-full bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10 transition-all ${isSending || messages.length === 0 ? 'opacity-20 cursor-not-allowed' : ''}`}
+              >
+                <Share2 size={24} />
               </motion.button>
             </div>
 

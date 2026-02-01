@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
             }
             if (showDebug !== undefined) aiUpdates.showDebug = showDebug;
             if (bgmEnabled !== undefined) aiUpdates.bgmEnabled = bgmEnabled;
+
             if (Object.keys(aiUpdates).length > 0) {
                 const updatedIdentity = await updateAIIdentity(aiUpdates);
                 updates.identity = updatedIdentity;

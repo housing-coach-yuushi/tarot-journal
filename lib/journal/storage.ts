@@ -2,7 +2,7 @@
  * Journal Storage - Save and retrieve journal conversations
  */
 
-import { redis } from '@/lib/db/redis';
+import { redis, getAIIdentity } from '@/lib/db/redis';
 
 const PREFIX = 'tarot-journal:';
 

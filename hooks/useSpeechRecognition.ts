@@ -130,6 +130,13 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     setDebugStatus('録音中');
 
     if (recognitionRef.current) {
+      // Force abort current session if any
+      try {
+        recognitionRef.current.abort();
+      } catch (e) {
+        // ignore
+      }
+
       // Small delay to ensure previous session is fully stopped
       setTimeout(() => {
         try {
@@ -138,9 +145,22 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
           console.log('[STT] Recognition started');
         } catch (error: any) {
           console.error('[STT] Failed to start:', error);
-          setDebugStatus('エラー: ' + error.message);
+          
+          // Retry once after a slightly longer delay
+          setTimeout(() => {
+            try {
+              console.log('[STT] Retrying start...');
+              recognitionRef.current.start();
+              console.log('[STT] Retry successful');
+              setDebugStatus('録音中');
+            } catch (retryError: any) {
+              console.error('[STT] Retry failed:', retryError);
+              setDebugStatus('エラー: ' + retryError.message);
+              setIsListening(false);
+            }
+          }, 300);
         }
-      }, 50);
+      }, 100);
     }
   }, []);
 
