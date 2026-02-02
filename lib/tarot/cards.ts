@@ -8,7 +8,7 @@ export interface TarotCard {
   rank?: string;
   id: number;
   name: string;
-  nameEn: string;
+  nameEn?: string;
   symbol: string;
   keywords: string[];
   meaning: {
@@ -51,7 +51,6 @@ export const MAJOR_ARCANA: TarotCard[] = [
     color: "#ffd700",
     videoFile: "愚者.mp4",
     image: "/tarot-assets/major_00.png",
-    image: "/tarot-assets/major_00.png"
   },
   {
     id: 1,
@@ -499,8 +498,8 @@ export function getCardByName(name: string): TarotCard | undefined {
   return ALL_CARDS.find(
     card =>
       card.name === name ||
-      card.nameEn.toLowerCase() === normalized ||
-      card.nameEn.toLowerCase().includes(normalized) ||
+      card.nameEn?.toLowerCase() === normalized ||
+      card.nameEn?.toLowerCase().includes(normalized) ||
       normalized.includes(card.name)
   );
 }
@@ -526,8 +525,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Ace of Wands influence your start today?",
       "evening": "In what ways did you experience the Ace of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -550,8 +549,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Two of Wands influence your start today?",
       "evening": "In what ways did you experience the Two of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -574,8 +573,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Three of Wands influence your start today?",
       "evening": "In what ways did you experience the Three of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -598,8 +597,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Four of Wands influence your start today?",
       "evening": "In what ways did you experience the Four of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -622,8 +621,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Five of Wands influence your start today?",
       "evening": "In what ways did you experience the Five of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -646,8 +645,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Six of Wands influence your start today?",
       "evening": "In what ways did you experience the Six of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -670,8 +669,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Seven of Wands influence your start today?",
       "evening": "In what ways did you experience the Seven of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -694,8 +693,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Eight of Wands influence your start today?",
       "evening": "In what ways did you experience the Eight of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -718,8 +717,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Nine of Wands influence your start today?",
       "evening": "In what ways did you experience the Nine of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -742,8 +741,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Ten of Wands influence your start today?",
       "evening": "In what ways did you experience the Ten of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -766,8 +765,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Page of Wands influence your start today?",
       "evening": "In what ways did you experience the Page of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -790,8 +789,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Knight of Wands influence your start today?",
       "evening": "In what ways did you experience the Knight of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -814,8 +813,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Queen of Wands influence your start today?",
       "evening": "In what ways did you experience the Queen of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -838,8 +837,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the King of Wands influence your start today?",
       "evening": "In what ways did you experience the King of Wands today?"
     },
-    "element": "Fire",
-    "themeColor": "#E34234",
+    "element": "fire",
+    "color": "#E34234",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -862,8 +861,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Ace of Cups influence your start today?",
       "evening": "In what ways did you experience the Ace of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -886,8 +885,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Two of Cups influence your start today?",
       "evening": "In what ways did you experience the Two of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -910,8 +909,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Three of Cups influence your start today?",
       "evening": "In what ways did you experience the Three of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -934,8 +933,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Four of Cups influence your start today?",
       "evening": "In what ways did you experience the Four of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -958,8 +957,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Five of Cups influence your start today?",
       "evening": "In what ways did you experience the Five of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -982,8 +981,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Six of Cups influence your start today?",
       "evening": "In what ways did you experience the Six of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1006,8 +1005,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Seven of Cups influence your start today?",
       "evening": "In what ways did you experience the Seven of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1030,8 +1029,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Eight of Cups influence your start today?",
       "evening": "In what ways did you experience the Eight of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1054,8 +1053,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Nine of Cups influence your start today?",
       "evening": "In what ways did you experience the Nine of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1078,8 +1077,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Ten of Cups influence your start today?",
       "evening": "In what ways did you experience the Ten of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1102,8 +1101,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Page of Cups influence your start today?",
       "evening": "In what ways did you experience the Page of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1126,8 +1125,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Knight of Cups influence your start today?",
       "evening": "In what ways did you experience the Knight of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1150,8 +1149,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Queen of Cups influence your start today?",
       "evening": "In what ways did you experience the Queen of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1174,8 +1173,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the King of Cups influence your start today?",
       "evening": "In what ways did you experience the King of Cups today?"
     },
-    "element": "Water",
-    "themeColor": "#4169E1",
+    "element": "water",
+    "color": "#4169E1",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1198,8 +1197,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Ace of Swords influence your start today?",
       "evening": "In what ways did you experience the Ace of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1222,8 +1221,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Two of Swords influence your start today?",
       "evening": "In what ways did you experience the Two of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1246,8 +1245,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Three of Swords influence your start today?",
       "evening": "In what ways did you experience the Three of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1270,8 +1269,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Four of Swords influence your start today?",
       "evening": "In what ways did you experience the Four of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1294,8 +1293,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Five of Swords influence your start today?",
       "evening": "In what ways did you experience the Five of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1318,8 +1317,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Six of Swords influence your start today?",
       "evening": "In what ways did you experience the Six of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1342,8 +1341,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Seven of Swords influence your start today?",
       "evening": "In what ways did you experience the Seven of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1366,8 +1365,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Eight of Swords influence your start today?",
       "evening": "In what ways did you experience the Eight of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1390,8 +1389,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Nine of Swords influence your start today?",
       "evening": "In what ways did you experience the Nine of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1414,8 +1413,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Ten of Swords influence your start today?",
       "evening": "In what ways did you experience the Ten of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1438,8 +1437,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Page of Swords influence your start today?",
       "evening": "In what ways did you experience the Page of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1462,8 +1461,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Knight of Swords influence your start today?",
       "evening": "In what ways did you experience the Knight of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1486,8 +1485,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Queen of Swords influence your start today?",
       "evening": "In what ways did you experience the Queen of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1510,8 +1509,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the King of Swords influence your start today?",
       "evening": "In what ways did you experience the King of Swords today?"
     },
-    "element": "Air",
-    "themeColor": "#C0C0C0",
+    "element": "air",
+    "color": "#C0C0C0",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1534,8 +1533,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Ace of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Ace of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1558,8 +1557,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Two of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Two of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1582,8 +1581,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Three of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Three of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1606,8 +1605,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Four of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Four of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1630,8 +1629,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Five of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Five of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1654,8 +1653,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Six of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Six of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1678,8 +1677,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Seven of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Seven of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1702,8 +1701,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Eight of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Eight of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1726,8 +1725,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Nine of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Nine of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1750,8 +1749,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Ten of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Ten of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1774,8 +1773,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Page of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Page of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1798,8 +1797,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Knight of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Knight of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1822,8 +1821,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the Queen of Pentacles influence your start today?",
       "evening": "In what ways did you experience the Queen of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   },
   {
@@ -1846,8 +1845,8 @@ export const MINOR_ARCANA: TarotCard[] = [
       "morning": "How does the energy of the King of Pentacles influence your start today?",
       "evening": "In what ways did you experience the King of Pentacles today?"
     },
-    "element": "Earth",
-    "themeColor": "#228B22",
+    "element": "earth",
+    "color": "#228B22",
     "videoFile": "placeholder.mp4"
   }
 ];
