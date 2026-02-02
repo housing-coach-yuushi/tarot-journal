@@ -14,13 +14,13 @@ interface TarotDeckShuffleProps {
 export function TarotDeckShuffle({ isOpen, onCardSelected, onClose }: TarotDeckShuffleProps) {
     const [playShuffle] = useSound('/sounds/shuffle.mp3', {
         volume: 1.0,
-        onloaderror: (id, err) => console.error('🔊 Shuffle Load Error:', err),
-        onplayerror: (id, err) => console.error('🔊 Shuffle Play Error:', err)
+        onloaderror: (_id: number, err: unknown) => console.error('🔊 Shuffle Load Error:', err),
+        onplayerror: (_id: number, err: unknown) => console.error('🔊 Shuffle Play Error:', err)
     });
     const [playDraw] = useSound('/sounds/draw.mp3', {
         volume: 1.0,
-        onloaderror: (id, err) => console.error('🔊 Draw Load Error:', err),
-        onplayerror: (id, err) => console.error('🔊 Draw Play Error:', err)
+        onloaderror: (_id: number, err: unknown) => console.error('🔊 Draw Load Error:', err),
+        onplayerror: (_id: number, err: unknown) => console.error('🔊 Draw Play Error:', err)
     });
 
     const [step, setStep] = useState<'intro' | 'shuffling' | 'spread' | 'selecting'>('intro');

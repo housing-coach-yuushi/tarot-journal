@@ -17,8 +17,8 @@ export function TarotCardReveal({ drawnCard, onRevealComplete, className = '' }:
     const [showEffects, setShowEffects] = useState(false);
     const [playFlip] = useSound('/sounds/flip.mp3', {
         volume: 1.0,
-        onloaderror: (id, err) => console.error('🔊 Flip Load Error:', err),
-        onplayerror: (id, err) => console.error('🔊 Flip Play Error:', err)
+        onloaderror: (_id: number, err: unknown) => console.error('🔊 Flip Load Error:', err),
+        onplayerror: (_id: number, err: unknown) => console.error('🔊 Flip Play Error:', err)
     });
 
     // Auto flip or manual? Let's make it manual for interaction, but maybe auto for now for smooth flow
