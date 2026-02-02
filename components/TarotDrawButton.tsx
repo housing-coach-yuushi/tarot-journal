@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles } from 'lucide-react';
+import { Coffee } from 'lucide-react';
 import { TarotCard as TarotCardType, drawRandomCard } from '@/lib/tarot/cards';
 
 interface TarotDrawButtonProps {
@@ -32,9 +32,9 @@ export default function TarotDrawButton({
         ${disabled ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/20 hover:text-white'}
         border border-white/10 shadow-lg
       `}
-      title="カードを引く"
+      title="ちょっと休憩"
     >
-      <Sparkles size={24} />
+      <Coffee size={24} />
     </motion.button>
   );
 }
