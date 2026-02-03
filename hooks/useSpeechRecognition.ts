@@ -130,37 +130,35 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     setDebugStatus('録音中');
 
     if (recognitionRef.current) {
-      // Force abort current session if any
+      // Force abort current session if any to ensure clean state
       try {
         recognitionRef.current.abort();
       } catch (e) {
         // ignore
       }
 
-      // Small delay to ensure previous session is fully stopped
-      setTimeout(() => {
-        try {
-          console.log('[STT] Starting recognition...');
-          recognitionRef.current.start();
-          console.log('[STT] Recognition started');
-        } catch (error: any) {
-          console.error('[STT] Failed to start:', error);
-          
-          // Retry once after a slightly longer delay
-          setTimeout(() => {
-            try {
-              console.log('[STT] Retrying start...');
-              recognitionRef.current.start();
-              console.log('[STT] Retry successful');
-              setDebugStatus('録音中');
-            } catch (retryError: any) {
-              console.error('[STT] Retry failed:', retryError);
-              setDebugStatus('エラー: ' + retryError.message);
-              setIsListening(false);
-            }
-          }, 300);
-        }
-      }, 100);
+      // Start immediately
+      try {
+        console.log('[STT] Starting recognition...');
+        recognitionRef.current.start();
+        console.log('[STT] Recognition started');
+      } catch (error: any) {
+        console.error('[STT] Failed to start immediately:', error);
+
+        // If immediately starting fails (usually because it's still closing), 
+        // retry once after a small delay
+        setTimeout(() => {
+          try {
+            console.log('[STT] Retrying start...');
+            recognitionRef.current.start();
+            console.log('[STT] Retry successful');
+          } catch (retryError: any) {
+            console.error('[STT] Retry failed:', retryError);
+            setDebugStatus('エラー: ' + retryError.message);
+            setIsListening(false);
+          }
+        }, 100);
+      }
     }
   }, []);
 

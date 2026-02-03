@@ -21,6 +21,20 @@ const notoSerifJp = Noto_Serif_JP({
 export const metadata: Metadata = {
   title: "George Tarot Journal",
   description: "A daily tarot journaling companion",
+  manifest: "/manifest.webmanifest",
+  themeColor: "#000000",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "George",
+  },
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+    viewportFit: "cover",
+  },
 };
 
 export default function RootLayout({

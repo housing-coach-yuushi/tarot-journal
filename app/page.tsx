@@ -77,6 +77,7 @@ export default function Home() {
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
   const [isShuffleOpen, setIsShuffleOpen] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // BGM playback control
   useEffect(() => {
@@ -447,12 +448,17 @@ export default function Home() {
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
     if (!text.trim()) return;
-    if (isSending && showInChat) {
-      log('送信中につきメッセージをスキップしました(チャット表示あり)');
-      return;
-    }
 
     log(`メッセージ送信開始: ${text.substring(0, 10)}...`);
+
+    // Abort any existing request
+    if (abortControllerRef.current) {
+      log('以前のメッセージリクエストを中断します');
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsSending(true);
 
     // Clear input immediately to prevent double-send
@@ -478,6 +484,7 @@ export default function Home() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           message: text,
           userId,
@@ -521,9 +528,16 @@ export default function Home() {
         setIsGeneratingAudio(false);
       }
     } catch (error) {
-      log('送信エラー: ' + (error as Error).message);
+      if ((error as Error).name === 'AbortError') {
+        log('メッセージ送信が中断されました');
+      } else {
+        log('送信エラー: ' + (error as Error).message);
+      }
     } finally {
-      setIsSending(false);
+      if (abortControllerRef.current === controller) {
+        setIsSending(false);
+        abortControllerRef.current = null;
+      }
     }
   }, [messages, userId, isSending, log, stopTTS, playTTS]);
 
@@ -572,7 +586,7 @@ export default function Home() {
       } else {
         const errorData = await saveResponse.json();
         log('Obsidian保存失敗: ' + (errorData.details || errorData.error));
-        alert('Obsidianへの保存に失敗しました。ダウンロードします。');
+        // alert('Obsidianへの保存に失敗しました。ダウンロードします。'); // Remove error alert
 
         // Fallback: Download file
         const dateStr = new Date().toISOString().split('T')[0];
@@ -742,6 +756,15 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
   const handleMicDown = (e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     log('押した');
+
+    // Prioritize microphone: Abort any pending message requests
+    if (abortControllerRef.current) {
+      log('マイク操作を優先するためAIへのリクエストを中断します');
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsSending(false);
+    }
+
     stopTTS();
     startListening();
   };
@@ -1152,11 +1175,11 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 onTouchStart={handleMicDown}
                 onTouchEnd={handleMicUp}
                 whileTap={{ scale: 0.95 }}
-                disabled={!sttSupported || isSending}
+                disabled={!sttSupported}
                 className={`p-6 rounded-full transition-all select-none relative z-10 ${isListening
                   ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-500/40'
                   : 'bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10'
-                  } ${!sttSupported || isSending ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  } ${!sttSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <Mic size={32} />
               </motion.button>
