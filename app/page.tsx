@@ -10,6 +10,8 @@ import { TarotDeckShuffle } from '@/components/TarotDeckShuffle';
 import SettingsModal from '@/components/SettingsModal';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { TarotCard, DrawnCard, drawRandomCard } from '@/lib/tarot/cards';
+import GeorgeRadio from '@/components/GeorgeRadio';
+import { Radio } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -34,6 +36,11 @@ interface BootstrapState {
     name?: string;
     callName?: string;
   };
+  history?: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp?: string;
+  }>;
 }
 
 // Generate or retrieve unique user ID
@@ -72,6 +79,8 @@ export default function Home() {
   const [isResetting, setIsResetting] = useState(false);
   const [checkinLines, setCheckinLines] = useState<string[] | null>(null);
   const [showTapHint, setShowTapHint] = useState(false);
+  const [showRadio, setShowRadio] = useState(false);
+  const [radioNotification, setRadioNotification] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
@@ -416,17 +425,24 @@ export default function Home() {
 
       setBootstrap(data.status);
 
-      if (data.message) {
-        setMessages(prev => {
-          // Don't add if already has messages
-          if (prev.length > 0) return prev;
-          return [{
-            id: 'initial-' + Date.now(),
-            role: 'assistant' as const,
-            content: data.message,
-            timestamp: new Date(),
-          }];
-        });
+      // Restore history from Cloud (Redis)
+      if (data.status.history && data.status.history.length > 0) {
+        log(`履歴を復元中: ${data.status.history.length}件`);
+        const restoredMessages: Message[] = data.status.history.map((m: any, i: number) => ({
+          id: `restored-${i}-${Date.now()}`,
+          role: m.role,
+          content: m.content,
+          timestamp: new Date(m.timestamp || Date.now()),
+        }));
+        setMessages(restoredMessages);
+      } else if (data.message) {
+        // Fallback to only initial awakening message if no history
+        setMessages([{
+          id: 'initial-' + Date.now(),
+          role: 'assistant' as const,
+          content: data.message,
+          timestamp: new Date(),
+        }]);
 
         // Play audio if unlocked
         if (data.audioUrl && audioRef.current && audioUnlocked) {
@@ -435,10 +451,10 @@ export default function Home() {
           setIsSpeaking(true);
           setIsGeneratingAudio(false);
           audioRef.current.play()
-            .then(() => log('遅延プリフェッチ音声再生開始'))
+            .then(() => log('初期音声再生開始'))
             .catch(() => setIsSpeaking(false));
         } else if (data.message && audioUnlocked && ttsEnabled) {
-          log('遅延初期音声の手動再生を試みます...');
+          log('初期音声の手動再生を試みます...');
           playTTS(data.message);
         }
       }
@@ -698,54 +714,70 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
     }
   }, [userId, log]);
 
-  // Share to native apps (Web Share API)
+  // Share to native apps (Web Share API) - with user-friendly formatting
   const handleShare = useCallback(async () => {
-    // Generate content for sharing
-    let title = '今日のタロットジャーナル';
-    let text = '';
-
-    if (messages.length > 0) {
-      // Create a quick text representation
-      const dateStr = new Date().toLocaleDateString('ja-JP');
-      text = `【${dateStr}のタロットジャーナル】\n\n`;
-
-      // Add summary if available (this assumes summary is stored somewhere or generated on fly)
-      // For now, simpler approach: just share the conversation history
-      text += messages.map(m => {
-        const role = m.role === 'assistant' ? 'カイ' : (m.role === 'user' ? (bootstrap.user?.callName || '私') : 'タロット');
-        let content = m.content;
-        if (m.role === 'tarot' && m.card) {
-          const cardName = m.card.card.name;
-          const position = m.card.isReversed ? '逆位置' : '正位置';
-          content = `🎴 ${cardName} (${position})\n${content}`;
-        }
-        return `${role}:\n${content}\n`;
-      }).join('\n');
+    if (messages.length === 0) {
+      alert('共有する内容がありません');
+      return;
     }
 
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: title,
-          text: text,
-        });
-        log('共有メニューを表示しました');
-      } catch (error) {
-        if ((error as Error).name !== 'AbortError') {
-          log('共有エラー: ' + (error as Error).message);
+    log('共有用に整理中...');
+
+    try {
+      // Call the format-share API to get user-friendly formatted text
+      const response = await fetch('/api/journal/format-share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: messages.map(m => ({
+            role: m.role,
+            content: m.content,
+            card: m.card,
+          })),
+        }),
+      });
+
+      let title = '今日のジャーナル';
+      let text = '';
+
+      if (response.ok) {
+        const data = await response.json();
+        title = data.title || title;
+        text = data.text || '';
+        log('共有用テキスト生成完了');
+      } else {
+        // Fallback: raw conversation
+        log('整理に失敗、元のテキストを使用');
+        text = messages.map(m => {
+          const role = m.role === 'assistant' ? 'ジョージ' : (m.role === 'user' ? 'わたし' : '🎴');
+          return `${role}: ${m.content}`;
+        }).join('\n\n');
+      }
+
+      if (navigator.share) {
+        try {
+          await navigator.share({ title, text });
+          log('共有メニューを表示しました');
+        } catch (error) {
+          if ((error as Error).name !== 'AbortError') {
+            log('共有エラー: ' + (error as Error).message);
+          }
+        }
+      } else {
+        // Fallback: Copy to clipboard
+        try {
+          await navigator.clipboard.writeText(text);
+          alert('クリップボードにコピーしました！\nジャーナルアプリなどに貼り付けてください。');
+          log('クリップボードにコピー');
+        } catch (err) {
+          log('コピー失敗');
         }
       }
-    } else {
-      // Fallback: Copy to clipboard
-      try {
-        await navigator.clipboard.writeText(text);
-        alert('クリップボードにコピーしました！\nメモアプリなどに貼り付けてください。');
-        log('クリップボードにコピー');
-      } catch (err) {
-        log('コピー失敗');
-      }
+    } catch (error) {
+      log('共有準備エラー: ' + (error as Error).message);
+      alert('共有の準備に失敗しました');
     }
-  }, [messages, log, bootstrap.user]);
+  }, [messages, log]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1117,8 +1149,26 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
 
           {/* Action Buttons */}
           <div className="flex items-center justify-center gap-6">
-            {/* Tarot Draw Button */}
-            <div className="flex-1 flex justify-end">
+            {/* Tarot & Radio Section */}
+            <div className="flex-1 flex justify-end items-center gap-4">
+              <motion.button
+                onClick={() => {
+                  setShowRadio(true);
+                  setRadioNotification(null);
+                }}
+                whileTap={{ scale: 0.95 }}
+                title="Weekly Radio"
+                className="p-4 rounded-full bg-white/10 backdrop-blur-sm text-gold-400 hover:bg-white/20 border border-gold-500/30 transition-all shadow-[0_0_15px_rgba(212,175,55,0.2)] relative"
+              >
+                <Radio size={24} />
+                {radioNotification && (
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-black"
+                  />
+                )}
+              </motion.button>
               <TarotDrawButton
                 disabled={isSending || isListening || isShuffleOpen}
                 onCardDrawn={() => setIsShuffleOpen(true)}
@@ -1185,7 +1235,6 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
               </motion.button>
             </motion.div>
 
-            {/* Save (Journal) & Share Buttons */}
             <div className="flex-1 flex justify-start gap-4">
               <motion.button
                 onClick={handleSave}
@@ -1205,7 +1254,6 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                   <Download size={24} />
                 )}
               </motion.button>
-
               <motion.button
                 onClick={handleShare}
                 disabled={isSending || messages.length === 0}
@@ -1232,6 +1280,49 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         loop
         style={{ display: 'none' }}
       />
+
+      <GeorgeRadio
+        isOpen={showRadio}
+        onClose={() => setShowRadio(false)}
+        userId={userId}
+        userName={bootstrap.user?.name || bootstrap.user?.callName || ''}
+        onGenerationComplete={(title) => {
+          if (!showRadio) {
+            setRadioNotification(title);
+          }
+        }}
+      />
+
+      {/* Radio Notification Toast */}
+      <AnimatePresence>
+        {radioNotification && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            onClick={() => {
+              setShowRadio(true);
+              setRadioNotification(null);
+            }}
+            className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[150] bg-gold-600/90 backdrop-blur-xl px-6 py-4 rounded-3xl border border-gold-400/30 shadow-2xl flex items-center gap-4 cursor-pointer active:scale-95 transition-transform"
+          >
+            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+              <Radio className="text-white" size={20} />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-white/60 tracking-widest uppercase">New Broadcast Ready</span>
+              <span className="text-sm font-medium text-white truncate max-w-[150px]">{radioNotification}</span>
+            </div>
+            <motion.div
+              animate={{ x: [0, 5, 0] }}
+              transition={{ repeat: Infinity, duration: 1.5 }}
+              className="ml-2"
+            >
+              <ChevronDown className="-rotate-90 text-white/60" size={16} />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main >
   );
 }

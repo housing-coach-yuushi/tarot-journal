@@ -45,10 +45,12 @@ class KieApiClient {
 
     /**
      * Chat completion using OpenAI-compatible endpoint
-     * For models like Gemini 3 Flash, the model name is in the URL path
+     * For models like Gemini, the model name is often in the URL path for this provider
      */
     async chat(messages: ChatMessage[], model: string = 'gemini-3-flash'): Promise<string> {
         const endpoint = `${this.baseUrl}/${model}/v1/chat/completions`;
+
+        console.log(`Calling Kie AI Chat: ${endpoint}`);
 
         const response = await fetch(endpoint, {
             method: 'POST',
@@ -58,10 +60,13 @@ class KieApiClient {
             },
             body: JSON.stringify({
                 messages: messages.map(m => ({
-                    role: m.role,
+                    // Official Doc: developer replaces system in newer versions
+                    role: m.role === 'system' ? 'developer' : m.role,
                     content: m.content,
                 })),
-                stream: false,
+                stream: false, // For easier JSON parsing in the current logic
+                include_thoughts: true, // Default as per doc
+                reasoning_effort: 'high' // Default as per doc
             }),
         });
 
@@ -71,8 +76,11 @@ class KieApiClient {
             throw new Error(`Kie.ai API Error: ${response.status} - ${error}`);
         }
 
-        const data: ChatCompletionResponse = await response.json();
-        return data.choices?.[0]?.message?.content || '';
+        const data = await response.json();
+        console.log('--- KIE AI CHAT FULL RESPONSE ---\n', JSON.stringify(data, null, 2), '\n--- END ---');
+
+        const content = data.choices?.[0]?.message?.content || '';
+        return content;
     }
 
     /**
@@ -176,6 +184,27 @@ class KieApiClient {
             text,
             voice: voiceName,
             stability: 0.5,
+            language_code: 'ja',
+        });
+    }
+
+    /**
+     * Text-to-Dialogue using ElevenLabs Dialogue v3
+     */
+    async generateDialogue(script: { speaker: string; text: string }[]): Promise<string> {
+        // Map common speaker names to Kie.ai supported voices
+        const voiceMapping: Record<string, string> = {
+            'George': 'George',
+            'Aria': 'Alice' // Map Aria to Alice (valid female voice)
+        };
+
+        const dialogue = script.map(line => ({
+            voice: voiceMapping[line.speaker] || 'George',
+            text: line.text
+        }));
+
+        return this.createTaskAndWait('elevenlabs/text-to-dialogue-v3', {
+            dialogue,
             language_code: 'ja',
         });
     }

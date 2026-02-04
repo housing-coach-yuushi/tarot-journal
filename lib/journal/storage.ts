@@ -178,3 +178,51 @@ export async function getStreak(userId: string): Promise<number> {
 
   return streak;
 }
+
+/**
+ * Get journal entries from the most recent Monday to today
+ */
+export async function getJournalsFromMonday(userId: string): Promise<JournalEntry[]> {
+  const today = new Date();
+  // Get JST today
+  const jstToday = new Date(today.getTime() + (9 * 60 * 60 * 1000));
+
+  // Day: 0 (Sun), 1 (Mon), ..., 6 (Sat)
+  const day = jstToday.getUTCDay();
+  const diff = jstToday.getUTCDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+
+  const monday = new Date(jstToday.setDate(diff));
+  const mondayDate = monday.toISOString().split('T')[0];
+
+  return getJournalsFromDate(userId, mondayDate);
+}
+
+/**
+ * Get journal entries within the past N days from today
+ */
+export async function getJournalsFromPastDays(userId: string, days: number = 7): Promise<JournalEntry[]> {
+  const today = new Date();
+  const jstToday = new Date(today.getTime() + (9 * 60 * 60 * 1000));
+
+  const pastDate = new Date(jstToday);
+  pastDate.setDate(pastDate.getDate() - days);
+  const startDate = pastDate.toISOString().split('T')[0];
+
+  return getJournalsFromDate(userId, startDate);
+}
+
+/**
+ * Common logic to fetch journals from a start date to today
+ */
+async function getJournalsFromDate(userId: string, startDate: string): Promise<JournalEntry[]> {
+  const dates = await getJournalDates(userId);
+  const relevantDates = dates.filter((d: string) => d >= startDate);
+
+  const entries: JournalEntry[] = [];
+  for (const date of relevantDates) {
+    const entry = await getJournalByDate(userId, date);
+    if (entry) entries.push(entry);
+  }
+
+  return entries;
+}
