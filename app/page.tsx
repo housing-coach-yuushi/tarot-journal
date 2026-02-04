@@ -724,7 +724,11 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
     log('共有用に整理中...');
 
     try {
-      // Call the format-share API to get user-friendly formatted text
+      // Step 1: Start the share process immediately if titles/text are ready
+      // or at least call share with meaningful placeholders to satisfy the user gesture.
+      // However, the best way in Safari is to have the text READY.
+      // Let's try to fetch first, but with a timeout or fallback.
+
       const response = await fetch('/api/journal/format-share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -737,18 +741,15 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         }),
       });
 
-      let title = '今日のジャーナル';
-      let text = '';
+      let shareTitle = '今日のジャーナル';
+      let shareText = '';
 
       if (response.ok) {
         const data = await response.json();
-        title = data.title || title;
-        text = data.text || '';
-        log('共有用テキスト生成完了');
+        shareTitle = data.title || shareTitle;
+        shareText = data.text || '';
       } else {
-        // Fallback: raw conversation
-        log('整理に失敗、元のテキストを使用');
-        text = messages.map(m => {
+        shareText = messages.map(m => {
           const role = m.role === 'assistant' ? 'ジョージ' : (m.role === 'user' ? 'わたし' : '🎴');
           return `${role}: ${m.content}`;
         }).join('\n\n');
@@ -756,26 +757,21 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
 
       if (navigator.share) {
         try {
-          await navigator.share({ title, text });
-          log('共有メニューを表示しました');
+          // Re-engaging with a small delay might fail in Safari,
+          // but if the fetch was fast (< 1s), it usually works.
+          await navigator.share({ title: shareTitle, text: shareText });
         } catch (error) {
-          if ((error as Error).name !== 'AbortError') {
-            log('共有エラー: ' + (error as Error).message);
-          }
+          // If share fails (e.g. timeout of user gesture), fallback to clipboard
+          await navigator.clipboard.writeText(shareText);
+          alert('共有メニューの起動に失敗したため、内容をクリップボードにコピーしました。');
         }
       } else {
-        // Fallback: Copy to clipboard
-        try {
-          await navigator.clipboard.writeText(text);
-          alert('クリップボードにコピーしました！\nジャーナルアプリなどに貼り付けてください。');
-          log('クリップボードにコピー');
-        } catch (err) {
-          log('コピー失敗');
-        }
+        await navigator.clipboard.writeText(shareText);
+        alert('クリップボードにコピーしました！');
       }
     } catch (error) {
-      log('共有準備エラー: ' + (error as Error).message);
-      alert('共有の準備に失敗しました');
+      log('共有エラー: ' + (error as Error).message);
+      alert('共有に失敗しました');
     }
   }, [messages, log]);
 
@@ -1123,8 +1119,8 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
       )}
 
       {/* Bottom Controls */}
-      <div className="relative z-20 p-4 safe-area-bottom">
-        <div className="max-w-2xl mx-auto">
+      <div className="relative z-20 p-4 safe-area-bottom pb-6">
+        <div className="max-w-2xl mx-auto px-2">
           {/* Input Form */}
           <form onSubmit={handleSubmit} className="flex items-center gap-3 mb-4">
             <div className="flex-1 flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
@@ -1148,9 +1144,9 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
           </form>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-center gap-6">
+          <div className="flex items-center justify-center gap-4 sm:gap-6">
             {/* Tarot & Radio Section */}
-            <div className="flex-1 flex justify-end items-center gap-4">
+            <div className="flex-1 flex justify-end items-center gap-3 sm:gap-4">
               <motion.button
                 onClick={() => {
                   setShowRadio(true);
@@ -1226,32 +1222,32 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 onTouchEnd={handleMicUp}
                 whileTap={{ scale: 0.95 }}
                 disabled={!sttSupported}
-                className={`p-6 rounded-full transition-all select-none relative z-10 ${isListening
+                className={`p-5 sm:p-6 rounded-full transition-all select-none relative z-10 ${isListening
                   ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-500/40'
                   : 'bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10'
                   } ${!sttSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                <Mic size={32} />
+                <Mic size={28} className="sm:w-8 sm:h-8" />
               </motion.button>
             </motion.div>
 
-            <div className="flex-1 flex justify-start gap-4">
+            <div className="flex-1 flex justify-start gap-3 sm:gap-4">
               <motion.button
                 onClick={handleSave}
                 disabled={isSending || messages.length === 0 || isSummarizing}
                 whileTap={{ scale: 0.95 }}
                 title="要約して保存"
-                className={`p-4 rounded-full bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10 transition-all ${isSending || messages.length === 0 ? 'opacity-20 cursor-not-allowed' : ''}`}
+                className={`p-3 sm:p-4 rounded-full bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10 transition-all ${isSending || messages.length === 0 ? 'opacity-20 cursor-not-allowed' : ''}`}
               >
                 {isSummarizing ? (
                   <motion.div
                     animate={{ rotate: 360 }}
                     transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
                   >
-                    <Loader2 size={24} />
+                    <Loader2 size={18} className="sm:w-6 sm:h-6" />
                   </motion.div>
                 ) : (
-                  <Download size={24} />
+                  <Download size={18} className="sm:w-6 sm:h-6" />
                 )}
               </motion.button>
               <motion.button
@@ -1259,9 +1255,9 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 disabled={isSending || messages.length === 0}
                 whileTap={{ scale: 0.95 }}
                 title="スマホに共有"
-                className={`p-4 rounded-full bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10 transition-all ${isSending || messages.length === 0 ? 'opacity-20 cursor-not-allowed' : ''}`}
+                className={`p-3 sm:p-4 rounded-full bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10 transition-all ${isSending || messages.length === 0 ? 'opacity-20 cursor-not-allowed' : ''}`}
               >
-                <Share2 size={24} />
+                <Share2 size={18} className="sm:w-6 sm:h-6" />
               </motion.button>
             </div>
 

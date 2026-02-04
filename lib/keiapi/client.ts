@@ -47,7 +47,7 @@ class KieApiClient {
      * Chat completion using OpenAI-compatible endpoint
      * For models like Gemini, the model name is often in the URL path for this provider
      */
-    async chat(messages: ChatMessage[], model: string = 'gemini-3-pro'): Promise<string> {
+    async chat(messages: ChatMessage[], model: string = 'gemini-3-flash'): Promise<string> {
         const endpoint = `${this.baseUrl}/${model}/v1/chat/completions`;
 
         console.log(`Calling Kie AI Chat: ${endpoint}`);
