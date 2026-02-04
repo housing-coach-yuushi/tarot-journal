@@ -47,7 +47,7 @@ class KieApiClient {
      * Chat completion using OpenAI-compatible endpoint
      * For models like Gemini, the model name is often in the URL path for this provider
      */
-    async chat(messages: ChatMessage[], model: string = 'gemini-3-flash'): Promise<string> {
+    async chat(messages: ChatMessage[], model: string = 'gemini-3-pro'): Promise<string> {
         const endpoint = `${this.baseUrl}/${model}/v1/chat/completions`;
 
         console.log(`Calling Kie AI Chat: ${endpoint}`);
@@ -60,13 +60,10 @@ class KieApiClient {
             },
             body: JSON.stringify({
                 messages: messages.map(m => ({
-                    // Official Doc: developer replaces system in newer versions
-                    role: m.role === 'system' ? 'developer' : m.role,
+                    role: m.role,
                     content: m.content,
                 })),
-                stream: false, // For easier JSON parsing in the current logic
-                include_thoughts: true, // Default as per doc
-                reasoning_effort: 'high' // Default as per doc
+                stream: false,
             }),
         });
 
@@ -79,7 +76,15 @@ class KieApiClient {
         const data = await response.json();
         console.log('--- KIE AI CHAT FULL RESPONSE ---\n', JSON.stringify(data, null, 2), '\n--- END ---');
 
+        // Handle Kie.ai specific error codes in JSON
+        if (data.code && data.code !== 200 && data.code !== 0) {
+            throw new Error(`Kie.ai API Server Error: [Code ${data.code}] ${data.msg || 'Unknown server error'}`);
+        }
+
         const content = data.choices?.[0]?.message?.content || '';
+        if (!content && messages.length > 0) {
+            console.warn('Kie.ai returned empty content despite no explicit error code.');
+        }
         return content;
     }
 
