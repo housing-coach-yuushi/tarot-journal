@@ -757,11 +757,9 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
 
       if (navigator.share) {
         try {
-          // Re-engaging with a small delay might fail in Safari,
-          // but if the fetch was fast (< 1s), it usually works.
           await navigator.share({ title: shareTitle, text: shareText });
         } catch (error) {
-          // If share fails (e.g. timeout of user gesture), fallback to clipboard
+          console.error('navigator.share failed:', error);
           await navigator.clipboard.writeText(shareText);
           alert('共有メニューの起動に失敗したため、内容をクリップボードにコピーしました。');
         }
@@ -770,8 +768,9 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         alert('クリップボードにコピーしました！');
       }
     } catch (error) {
+      console.error('handleShare error:', error);
       log('共有エラー: ' + (error as Error).message);
-      alert('共有に失敗しました');
+      alert('共有に失敗しました: ' + (error as Error).message);
     }
   }, [messages, log]);
 
