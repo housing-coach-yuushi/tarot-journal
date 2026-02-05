@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getKieApiClient } from '@/lib/keiapi/client';
+import { chatWithClaude } from '@/lib/anthropic/client';
 import { getUserProfile, getConversationHistory } from '@/lib/db/redis';
 
 const CHECKIN_PROMPT = `あなたはタロットジャーナルアプリのチェックインガイドです。
@@ -98,7 +98,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const client = getKieApiClient();
     const prompt = CHECKIN_PROMPT
       .replace('{{date}}', dateStr)
       .replace('{{timeOfDay}}', timeOfDay)
@@ -107,7 +106,7 @@ export async function GET(request: NextRequest) {
       .replace('{{userName}}', userName)
       .replace('{{lastSession}}', lastSession);
 
-    const result = await client.chat([
+    const result = await chatWithClaude([
       { role: 'system', content: prompt },
       { role: 'user', content: '今のチェックインの言葉をください' },
     ]);
