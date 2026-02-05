@@ -12,7 +12,7 @@ export async function chatWithClaude(messages: ChatMessage[], model: string = 'c
 
     const { text } = await generateText({
         model: anthropic(model),
-        system: systemPrompt,
+        ...(systemPrompt ? { system: systemPrompt } : {}),
         messages: otherMessages.map(m => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
