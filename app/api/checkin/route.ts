@@ -60,14 +60,30 @@ export async function GET(request: NextRequest) {
 
     // Use Tokyo timezone (JST) for all date/time calculations
     const now = new Date();
-    const tokyoStr = now.toLocaleString('en-US', { timeZone: 'Asia/Tokyo' });
-    const tokyo = new Date(tokyoStr);
-    const hour = tokyo.getHours();
+    const parts = new Intl.DateTimeFormat('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      weekday: 'long',
+      hour: 'numeric',
+      hour12: false,
+    }).formatToParts(now);
+
+    const getPart = (type: string) => parts.find(p => p.type === type)?.value || '';
+    const hour = Number(getPart('hour'));
+    const year = getPart('year');
+    const month = Number(getPart('month'));
+    const day = getPart('day');
+    const dayOfWeek = getPart('weekday');
+
     const timeOfDay = hour >= 5 && hour < 12 ? '朝' : hour >= 12 && hour < 17 ? '昼' : hour >= 17 && hour < 21 ? '夕方' : '夜';
-    const days = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
-    const dayOfWeek = days[tokyo.getDay()];
-    const dateStr = `${tokyo.getFullYear()}年${tokyo.getMonth() + 1}月${tokyo.getDate()}日`;
-    const month = tokyo.getMonth() + 1;
+    const greeting =
+      timeOfDay === '朝' ? 'おはようございます' :
+      timeOfDay === '昼' ? 'こんにちは' :
+      timeOfDay === '夕方' ? 'こんばんは' :
+      'おつかれさまでした';
+    const dateStr = `${year}年${month}月${day}日`;
     const seasons = ['冬', '冬', '春', '春', '春', '夏', '夏', '夏', '秋', '秋', '秋', '冬'];
     const season = seasons[month - 1];
 
@@ -104,7 +120,8 @@ export async function GET(request: NextRequest) {
       .replace('{{dayOfWeek}}', dayOfWeek)
       .replace('{{season}}', season)
       .replace('{{userName}}', userName)
-      .replace('{{lastSession}}', lastSession);
+      .replace('{{lastSession}}', lastSession)
+      + `\n\n追加ルール:\n- 1行目は必ず「${greeting}」にする（完全一致）\n- 1行目は挨拶以外の情報を入れない`;
 
     const result = await chatWithClaude([
       { role: 'system', content: prompt },
@@ -113,10 +130,14 @@ export async function GET(request: NextRequest) {
 
     // Parse 2-3 lines: greeting, journal purpose, checkin
     const lines = result.trim().split('\n').filter(l => l.trim());
-    // Return all lines joined for display
-    const allLines = lines.length > 0
-      ? lines.map(l => l.trim())
-      : ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
+    const normalized = lines.map(l => l.trim());
+    if (normalized.length === 0) {
+      normalized.push(greeting, '一緒にジャーナルをつけていきましょう', '心を静かにして...');
+    }
+    if (normalized[0] !== greeting) {
+      normalized[0] = greeting;
+    }
+    const allLines = normalized;
 
     return NextResponse.json({ lines: allLines });
   } catch (error) {

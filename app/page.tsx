@@ -68,6 +68,7 @@ function getUserId(): string {
 
 export default function Home() {
   const prefersReducedMotion = useReducedMotion();
+  const supportsPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window;
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -97,6 +98,7 @@ export default function Home() {
   const [showRadio, setShowRadio] = useState(false);
   const [radioNotification, setRadioNotification] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
@@ -106,6 +108,7 @@ export default function Home() {
   const noticeTimerRef = useRef<number | null>(null);
   const ttsEnabledRef = useRef<boolean>(ttsEnabled);
   const hasHistoryRef = useRef<boolean>(false);
+  const touchActiveRef = useRef<boolean>(false);
   // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
 
@@ -751,9 +754,19 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     sendMessage(input);
   };
 
+  const focusInput = () => {
+    inputRef.current?.focus();
+  };
+
   // Push-to-talk: start on press
-  const handleMicDown = (e: React.PointerEvent) => {
+  const handleMicDown = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
+    if ('type' in e && e.type === 'touchstart') {
+      touchActiveRef.current = true;
+    }
+    if ('pointerType' in e && e.pointerType === 'mouse' && touchActiveRef.current) {
+      return;
+    }
     log('押した');
 
     if (!sttSupported) {
@@ -777,8 +790,14 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
   };
 
   // Push-to-talk: send on release
-  const handleMicUp = (e: React.PointerEvent) => {
+  const handleMicUp = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
+    if ('type' in e && e.type === 'touchend') {
+      touchActiveRef.current = false;
+    }
+    if ('pointerType' in e && e.pointerType === 'mouse' && touchActiveRef.current) {
+      return;
+    }
     log('離した');
     if (!isListening) return;
     stopAndSend();
@@ -1201,6 +1220,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
           <form onSubmit={handleSubmit} className="flex items-center gap-3 mb-4">
             <div className="flex-1 flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
               <input
+                ref={inputRef}
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -1296,6 +1316,10 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
                 onPointerDown={handleMicDown}
                 onPointerUp={handleMicUp}
                 onPointerCancel={handleMicUp}
+                onTouchStart={!supportsPointerEvents ? handleMicDown : undefined}
+                onTouchEnd={!supportsPointerEvents ? handleMicUp : undefined}
+                onMouseDown={!supportsPointerEvents ? handleMicDown : undefined}
+                onMouseUp={!supportsPointerEvents ? handleMicUp : undefined}
                 whileTap={{ scale: 0.95 }}
                 disabled={!sttSupported}
                 aria-label="マイクを押して話す"
@@ -1350,6 +1374,21 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
             </div>
 
           </div>
+          {( !sttSupported || debugStatus === 'マイク許可が必要です' || debugStatus === '変換エラー' || debugStatus === '音声が短すぎます') && (
+            <div className="mt-3 flex items-center justify-center gap-3 text-xs text-white/60">
+              {!sttSupported ? (
+                <span>このブラウザでは音声入力が使えません。テキスト入力をご利用ください。</span>
+              ) : (
+                <span>音声入力がうまくいかない場合はテキスト入力に切り替えてください。</span>
+              )}
+              <button
+                onClick={focusInput}
+                className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+              >
+                テキスト入力
+              </button>
+            </div>
+          )}
         </div>
       </div>
       <audio
