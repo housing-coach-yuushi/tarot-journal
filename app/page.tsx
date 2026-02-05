@@ -13,7 +13,7 @@ import { Radio } from 'lucide-react';
 const TarotCardReveal = dynamic(() => import('@/components/TarotCardReveal').then(m => m.TarotCardReveal), {
   ssr: false,
 });
-const TarotDeckShuffle = dynamic(() => import('@/components/TarotDeckShuffle').then(m => m.default), {
+const TarotDeckShuffle = dynamic(() => import('@/components/TarotDeckShuffle').then(m => m.TarotDeckShuffle), {
   ssr: false,
 });
 const SettingsModal = dynamic(() => import('@/components/SettingsModal').then(m => m.default), {
