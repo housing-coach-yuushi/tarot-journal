@@ -146,17 +146,6 @@ export default function Home() {
     }, ttlMs);
   }, []);
 
-  useEffect(() => {
-    if (debugStatus === 'マイク許可が必要です') {
-      pushNotice('error', 'マイクの許可が必要です。ブラウザ設定を確認してください。', 6000);
-    } else if (debugStatus === '変換エラー') {
-      pushNotice('error', '音声の変換に失敗しました。もう一度試してください。', 5000);
-    } else if (debugStatus === '音声が短すぎます') {
-      pushNotice('info', '音声が短すぎます。もう少し長く話してください。', 4000);
-    }
-  }, [debugStatus, pushNotice]);
-
-
   // Initialize userId on client side
   useEffect(() => {
     setUserId(getUserId());
@@ -186,6 +175,16 @@ export default function Home() {
       }
     },
   });
+
+  useEffect(() => {
+    if (debugStatus === 'マイク許可が必要です') {
+      pushNotice('error', 'マイクの許可が必要です。ブラウザ設定を確認してください。', 6000);
+    } else if (debugStatus === '変換エラー') {
+      pushNotice('error', '音声の変換に失敗しました。もう一度試してください。', 5000);
+    } else if (debugStatus === '音声が短すぎます') {
+      pushNotice('info', '音声が短すぎます。もう少し長く話してください。', 4000);
+    }
+  }, [debugStatus, pushNotice]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
