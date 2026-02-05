@@ -98,7 +98,6 @@ export default function Home() {
   const [showRadio, setShowRadio] = useState(false);
   const [radioNotification, setRadioNotification] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
@@ -754,10 +753,6 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     sendMessage(input);
   };
 
-  const focusInput = () => {
-    inputRef.current?.focus();
-  };
-
   // Push-to-talk: start on press
   const handleMicDown = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
@@ -1220,7 +1215,6 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
           <form onSubmit={handleSubmit} className="flex items-center gap-3 mb-4">
             <div className="flex-1 flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
               <input
-                ref={inputRef}
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -1374,21 +1368,6 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
             </div>
 
           </div>
-          {( !sttSupported || debugStatus === 'マイク許可が必要です' || debugStatus === '変換エラー' || debugStatus === '音声が短すぎます') && (
-            <div className="mt-3 flex items-center justify-center gap-3 text-xs text-white/60">
-              {!sttSupported ? (
-                <span>このブラウザでは音声入力が使えません。テキスト入力をご利用ください。</span>
-              ) : (
-                <span>音声入力がうまくいかない場合はテキスト入力に切り替えてください。</span>
-              )}
-              <button
-                onClick={focusInput}
-                className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-              >
-                テキスト入力
-              </button>
-            </div>
-          )}
         </div>
       </div>
       <audio
