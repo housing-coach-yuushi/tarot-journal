@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getKieApiClient } from '@/lib/keiapi/client';
+import { chatWithClaude } from '@/lib/anthropic/client';
 
 export async function POST(request: NextRequest) {
     try {
@@ -8,8 +8,6 @@ export async function POST(request: NextRequest) {
         if (!messages || !Array.isArray(messages) || messages.length === 0) {
             return NextResponse.json({ error: 'Messages are required' }, { status: 400 });
         }
-
-        const client = getKieApiClient();
 
         // Prepare conversation text
         const conversationText = messages
@@ -45,7 +43,7 @@ export async function POST(request: NextRequest) {
 対話内容:
 ${conversationText}`;
 
-        const text = await client.chat([{ role: 'user', content: prompt }]);
+        const text = await chatWithClaude([{ role: 'user', content: prompt }]);
 
         // Parse the output
         const titleMatch = text.match(/タイトル:\s*(.+)/);

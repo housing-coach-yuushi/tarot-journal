@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getKieApiClient, ChatMessage } from '@/lib/keiapi/client';
+import { ChatMessage } from '@/lib/keiapi/client';
+import { chatWithClaude } from '@/lib/anthropic/client';
 import {
     isBootstrapComplete,
     isUserOnboarded,
@@ -72,9 +73,8 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        // Call Kie.ai API
-        const client = getKieApiClient();
-        let response = await client.chat(messages);
+        // Call Claude API instead of Kie.ai
+        let response = await chatWithClaude(messages);
 
         // Parse identity_data block if present (for AI bootstrap)
         const identityDataMatch = response.match(/```identity_data\n([\s\S]*?)```/);
