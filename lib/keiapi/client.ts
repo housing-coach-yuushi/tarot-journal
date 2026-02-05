@@ -219,17 +219,35 @@ class KieApiClient {
     }
 
     /**
-     * Speech-to-Text using ElevenLabs Speech-to-Text (task API)
-     * Expects a base64 encoded audio string and optional mime type, sent as a data URL.
+     * Speech-to-Text using Kie.ai task API.
+     * Supports both audio_url (data URL) and audio (base64) inputs.
      */
-    async speechToText(audioBase64: string, mimeType: string = 'audio/mp4'): Promise<string> {
-        const dataUrl = `data:${mimeType};base64,${audioBase64}`;
-        return this.createTaskAndWait('elevenlabs/speech-to-text', {
-            audio_url: dataUrl,
-            language_code: 'ja',
-            tag_audio_events: true,
-            diarize: false,
-        });
+    async speechToText(
+        audioBase64: string,
+        mimeType: string = 'audio/mp4',
+        options?: { model?: string; inputMode?: 'audio_url' | 'audio' }
+    ): Promise<string> {
+        const model = options?.model || process.env.KEIAPI_STT_MODEL || 'elevenlabs/scribe-v2';
+        const inputMode =
+            options?.inputMode ||
+            (process.env.KEIAPI_STT_INPUT_MODE as 'audio_url' | 'audio' | undefined) ||
+            (model === 'elevenlabs/speech-to-text' ? 'audio_url' : 'audio');
+
+        const input =
+            inputMode === 'audio_url'
+                ? {
+                    audio_url: `data:${mimeType};base64,${audioBase64}`,
+                    language_code: 'ja',
+                    tag_audio_events: true,
+                    diarize: false,
+                }
+                : {
+                    audio: audioBase64,
+                    language_code: 'ja',
+                    tag_audio_events: true,
+                };
+
+        return this.createTaskAndWait(model, input);
     }
 }
 
