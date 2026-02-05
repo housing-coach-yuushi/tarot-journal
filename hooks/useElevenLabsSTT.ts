@@ -33,9 +33,11 @@ export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
             // Determine supported mime type
-            const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-                ? 'audio/webm'
-                : 'audio/mp4';
+            const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
+                ? 'audio/mp4'
+                : MediaRecorder.isTypeSupported('audio/webm')
+                    ? 'audio/webm'
+                    : 'audio/ogg';
 
             const recorder = new MediaRecorder(stream, { mimeType });
             mediaRecorderRef.current = recorder;
@@ -78,7 +80,8 @@ export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
     const sendToSTT = async (blob: Blob) => {
         try {
             const formData = new FormData();
-            formData.append('audio', blob, 'recording.audio');
+            const fileExt = mimeType.split('/')[1] || 'audio';
+            formData.append('audio', blob, `recording.${fileExt}`);
 
             const response = await fetch('/api/stt', {
                 method: 'POST',

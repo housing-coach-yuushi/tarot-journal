@@ -13,13 +13,14 @@ export async function POST(request: NextRequest) {
         // Convert file to base64
         const buffer = await audioFile.arrayBuffer();
         const base64Audio = Buffer.from(buffer).toString('base64');
+        const mimeType = audioFile.type || 'audio/mp4';
 
         const client = getKieApiClient();
 
-        console.log('[API/STT] Starting ElevenLabs Scribe v2 transcription...');
+        console.log(`[API/STT] Starting ElevenLabs Speech-to-Text transcription... mimeType=${mimeType}`);
         const startTime = Date.now();
 
-        const transcript = await client.speechToText(base64Audio);
+        const transcript = await client.speechToText(base64Audio, mimeType);
 
         const duration = Date.now() - startTime;
         console.log(`[API/STT] Transcription complete: ${duration}ms, result="${transcript.substring(0, 50)}..."`);

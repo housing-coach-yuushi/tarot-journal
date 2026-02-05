@@ -167,6 +167,9 @@ class KieApiClient {
             if (status.state === 'success' && status.resultJson) {
                 try {
                     const result = JSON.parse(status.resultJson);
+                    if (result?.resultObject?.text) {
+                        return result.resultObject.text;
+                    }
                     return result.resultUrls?.[0] || JSON.stringify(result);
                 } catch (e) {
                     throw new Error(`Failed to parse resultJson: ${status.resultJson}`);
@@ -216,14 +219,16 @@ class KieApiClient {
     }
 
     /**
-     * Speech-to-Text using ElevenLabs Scribe v2
-     * Expects a base64 encoded audio string or a direct Blob/Buffer depending on implementation
+     * Speech-to-Text using ElevenLabs Speech-to-Text (task API)
+     * Expects a base64 encoded audio string and optional mime type, sent as a data URL.
      */
-    async speechToText(audioBase64: string): Promise<string> {
-        return this.createTaskAndWait('elevenlabs/scribe-v2', {
-            audio: audioBase64,
+    async speechToText(audioBase64: string, mimeType: string = 'audio/mp4'): Promise<string> {
+        const dataUrl = `data:${mimeType};base64,${audioBase64}`;
+        return this.createTaskAndWait('elevenlabs/speech-to-text', {
+            audio_url: dataUrl,
             language_code: 'ja',
             tag_audio_events: true,
+            diarize: false,
         });
     }
 }
