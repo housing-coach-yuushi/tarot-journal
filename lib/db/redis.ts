@@ -13,8 +13,8 @@ if (!url || !token) {
     console.error('Redis environment variables missing:', { url: !!url, token: !!token });
 }
 
-// Ensure URL starts with http/https
-const formattedUrl = url?.startsWith('http') ? url : `https://${url}`;
+// Ensure URL starts with http/https (only if url is present)
+const formattedUrl = url ? (url.startsWith('http') ? url : `https://${url}`) : undefined;
 
 const redis = new Redis({
     url: formattedUrl || 'https://unexpected-missing-url', // Fallback to avoid immediate crash on init, requests will still fail
@@ -49,6 +49,34 @@ export interface ConversationHistory {
         content: string;
         timestamp: string;
     }>;
+}
+
+const HISTORY_MAX = 100;
+const HISTORY_TTL_SEC = 60 * 60 * 24 * 90; // 90 days
+
+const historyAppendScript = redis.createScript<number>(`
+    redis.call('LPUSH', KEYS[1], ARGV[1])
+    redis.call('LTRIM', KEYS[1], 0, tonumber(ARGV[2]))
+    return 1
+`);
+
+async function ensureHistoryList(userId: string): Promise<string> {
+    const key = `${PREFIX}history:${userId}`;
+    const type = await redis.type(key);
+
+    if (type === 'string') {
+        const legacy = await redis.get<ConversationHistory>(key);
+        await redis.del(key);
+        if (legacy?.messages?.length) {
+            for (const msg of legacy.messages) {
+                await redis.lpush(key, JSON.stringify(msg));
+            }
+            await redis.ltrim(key, 0, HISTORY_MAX - 1);
+            await redis.expire(key, HISTORY_TTL_SEC);
+        }
+    }
+
+    return key;
 }
 
 // AI Identity operations
@@ -97,32 +125,39 @@ export async function updateUserProfile(userId: string, updates: Partial<UserPro
 
 // Conversation History operations
 export async function getConversationHistory(userId: string, limit = 50): Promise<ConversationHistory> {
-    const history = await redis.get<ConversationHistory>(`${PREFIX}history:${userId}`);
-    if (!history) return { messages: [] };
+    if (limit <= 0) return { messages: [] };
 
-    // Return only the last N messages
-    return {
-        messages: history.messages.slice(-limit),
-    };
+    const key = await ensureHistoryList(userId);
+    const raw = await redis.lrange<string>(key, 0, limit - 1);
+
+    if (!raw || raw.length === 0) return { messages: [] };
+
+    const parsed = raw
+        .map(item => {
+            try {
+                return JSON.parse(item) as ConversationHistory['messages'][number];
+            } catch {
+                return null;
+            }
+        })
+        .filter(Boolean) as ConversationHistory['messages'];
+
+    // Stored newest-first; return chronological
+    return { messages: parsed.reverse() };
 }
 
 export async function addToConversationHistory(
     userId: string,
     message: { role: 'user' | 'assistant'; content: string }
 ): Promise<void> {
-    const history = await getConversationHistory(userId, 100);
-
-    history.messages.push({
+    const key = await ensureHistoryList(userId);
+    const payload = JSON.stringify({
         ...message,
         timestamp: new Date().toISOString(),
     });
 
-    // Keep only last 100 messages
-    if (history.messages.length > 100) {
-        history.messages = history.messages.slice(-100);
-    }
-
-    await redis.set(`${PREFIX}history:${userId}`, history);
+    await historyAppendScript.exec([key], [payload, String(HISTORY_MAX - 1)]);
+    await redis.expire(key, HISTORY_TTL_SEC);
 }
 
 export async function clearConversationHistory(userId: string): Promise<void> {

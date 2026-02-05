@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatWithClaude } from '@/lib/anthropic/client';
+import { getUserProfile, getAIIdentity } from '@/lib/db/redis';
 
 export async function POST(request: NextRequest) {
     try {
-        const { messages } = await request.json();
+        const { messages, userId = 'default' } = await request.json();
 
         if (!messages || !Array.isArray(messages) || messages.length === 0) {
             return NextResponse.json({ error: 'Messages are required' }, { status: 400 });
         }
+
+        // Fetch names from DB
+        const [userProfile, aiIdentity] = await Promise.all([
+            getUserProfile(userId),
+            getAIIdentity(),
+        ]);
+        const userName = userProfile?.displayName || 'わたし';
+        const aiName = aiIdentity?.name || 'ジョージ';
 
         // Prepare conversation text
         const conversationText = messages
@@ -15,7 +24,7 @@ export async function POST(request: NextRequest) {
                 if (m.role === 'tarot' && m.card) {
                     return `[タロット🎴] ${m.card.card?.name || 'カード'} - ${m.content}`;
                 }
-                const roleName = m.role === 'assistant' ? 'ジョージ' : 'わたし';
+                const roleName = m.role === 'assistant' ? aiName : userName;
                 return `${roleName}: ${m.content}`;
             })
             .join('\n');
@@ -29,7 +38,7 @@ export async function POST(request: NextRequest) {
 - 読みやすい段落に整理するだけで、内容を省略しすぎないこと
 - 箇条書きではなく、自然な文章で
 - タロットカードが出たら、カード名と簡単な意味も含めてください
-- 最後に「今日の一言」として、ジョージからの印象的なアドバイスを1行だけ入れてください
+- 最後に「今日の一言」として、${aiName}からの印象的なアドバイスを1行だけ入れてください
 - 日付は入れないでください（ジャーナルアプリが自動で入れます）
 
 出力フォーマット:
@@ -38,7 +47,7 @@ export async function POST(request: NextRequest) {
 [整理された日記本文]
 
 ---
-今日の一言: [ジョージからの印象的なコメント]
+今日の一言: [${aiName}からの印象的なコメント]
 
 対話内容:
 ${conversationText}`;

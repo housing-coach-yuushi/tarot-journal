@@ -1,17 +1,27 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import dynamic from 'next/dynamic';
 import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings, Share2 } from 'lucide-react';
 import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
-import { TarotCardReveal } from '@/components/TarotCardReveal';
-import { TarotDeckShuffle } from '@/components/TarotDeckShuffle';
-import SettingsModal from '@/components/SettingsModal';
-import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { useElevenLabsSTT } from '@/hooks/useElevenLabsSTT';
 import { TarotCard, DrawnCard, drawRandomCard } from '@/lib/tarot/cards';
-import GeorgeRadio from '@/components/GeorgeRadio';
 import { Radio } from 'lucide-react';
+
+const TarotCardReveal = dynamic(() => import('@/components/TarotCardReveal').then(m => m.TarotCardReveal), {
+  ssr: false,
+});
+const TarotDeckShuffle = dynamic(() => import('@/components/TarotDeckShuffle'), {
+  ssr: false,
+});
+const SettingsModal = dynamic(() => import('@/components/SettingsModal'), {
+  ssr: false,
+});
+const GeorgeRadio = dynamic(() => import('@/components/GeorgeRadio'), {
+  ssr: false,
+});
 
 interface Message {
   id: string;
@@ -57,6 +67,7 @@ function getUserId(): string {
 }
 
 export default function Home() {
+  const prefersReducedMotion = useReducedMotion();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -72,6 +83,10 @@ export default function Home() {
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
+  const [isSharing, setIsSharing] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [userId, setUserId] = useState<string>('default');
@@ -87,6 +102,10 @@ export default function Home() {
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
   const [isShuffleOpen, setIsShuffleOpen] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const lastSendTextRef = useRef<string>('');
+  const noticeTimerRef = useRef<number | null>(null);
+  const ttsEnabledRef = useRef<boolean>(ttsEnabled);
+  const MAX_RENDER_MESSAGES = 80;
 
   // BGM playback control
   useEffect(() => {
@@ -110,6 +129,21 @@ export default function Home() {
     setDebugLog(prev => [...prev.slice(-20), fullMsg]);
   }, []);
 
+  useEffect(() => {
+    ttsEnabledRef.current = ttsEnabled;
+  }, [ttsEnabled]);
+
+  const pushNotice = useCallback((type: 'info' | 'success' | 'error', message: string, ttlMs = 4000) => {
+    setNotice({ type, message });
+    if (noticeTimerRef.current) {
+      window.clearTimeout(noticeTimerRef.current);
+    }
+    noticeTimerRef.current = window.setTimeout(() => {
+      setNotice(null);
+      noticeTimerRef.current = null;
+    }, ttlMs);
+  }, []);
+
 
   // Initialize userId on client side
   useEffect(() => {
@@ -123,8 +157,15 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [checkinLines]);
 
+  // Fallback: always allow tap after a short delay even if checkin fails
+  useEffect(() => {
+    if (!isLoading) return;
+    const timer = setTimeout(() => setShowTapHint(true), 6000);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
 
-  // Speech recognition hook - push-to-talk style
+
+  // Speech recognition hook - ElevenLabs Scribe v2
   const {
     isListening,
     currentTranscript,
@@ -132,9 +173,8 @@ export default function Home() {
     debugStatus,
     startListening,
     stopAndSend,
-  } = useSpeechRecognition({
-    lang: 'ja-JP',
-    onFinalResult: (text) => {
+  } = useElevenLabsSTT({
+    onFinalResult: (text: string) => {
       // When released and has content, send it
       if (text.trim()) {
         sendMessage(text);
@@ -177,6 +217,9 @@ export default function Home() {
           log(`音声受信: ${audioBlob.size} bytes`);
           const url = URL.createObjectURL(audioBlob);
           if (audioRef.current) {
+            if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
+              URL.revokeObjectURL(audioRef.current.src);
+            }
             audioRef.current.src = url;
             audioRef.current.load();
             setIsSpeaking(true);
@@ -217,11 +260,11 @@ export default function Home() {
   const initDataRef = useRef<{ message: string; audioUrl: string | null; status: BootstrapState } | null>(null);
 
   // Background: fetch chat + TTS while showing "tap to start"
-  useEffect(() => {
-    const prepareInBackground = async () => {
+  const prepareInBackground = useCallback(async () => {
       try {
         log('バックグラウンド準備開始...');
         setIsPreparing(true);
+        setInitError(null);
 
         const fetchWithTimeout = async (url: string, options?: RequestInit, timeout = 60000) => {
           const controller = new AbortController();
@@ -278,7 +321,7 @@ export default function Home() {
           log(`初期メッセージ取得成功: "${messageText.substring(0, 20)}..."`);
 
           // Pre-fetch TTS audio
-          if (messageText && ttsEnabled) {
+          if (messageText && ttsEnabledRef.current) {
             try {
               log('音声プリフェッチ中...');
               setIsGeneratingAudio(true);
@@ -306,6 +349,9 @@ export default function Home() {
               setIsGeneratingAudio(false);
             }
           }
+        } else {
+          setInitError('通信に失敗しました。再試行してください。');
+          messageText = '...。......あ、れ......。すまない、今は少し意識が遠のいているみたいだ（通信エラー）。';
         }
 
         // Store prepared data
@@ -314,16 +360,18 @@ export default function Home() {
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log(`初期化エラー詳細: ${errMsg}`);
+        setInitError('通信に失敗しました。再試行してください。');
       } finally {
         setIsReady(true);
         setIsPreparing(false);
         setIsGeneratingAudio(false);
       }
-    };
+    }, [log]);
 
+  useEffect(() => {
     prepareInBackground();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [prepareInBackground]);
 
   // Tap-to-start handler: unlock audio + show chat + play voice
   const handleTapToStart = useCallback(async () => {
@@ -458,8 +506,8 @@ export default function Home() {
           playTTS(data.message);
         }
       }
-    } else {
-      // Fallback: Show a friendly message even if the API is down
+    } else if (isReady && !isLoading && !initDataRef.current) {
+      // Fallback: Show a friendly message only when prep is done but no data was returned
       log('初期メッセージが取得できなかったため、フォールバックメッセージを表示します');
       setMessages([{
         id: 'error-fallback-' + Date.now(),
@@ -467,6 +515,7 @@ export default function Home() {
         content: '...。......あ、れ......。すまない、今は少し意識が遠のいているみたいだ（通信エラー）。少し時間を置いてからまた話しかけてくれるかい？',
         timestamp: new Date(),
       }]);
+      setInitError('通信に失敗しました。再試行してください。');
     }
   }, [isReady, isLoading, audioUnlocked, log, ttsEnabled, playTTS]);
 
@@ -475,6 +524,8 @@ export default function Home() {
     if (!text.trim()) return;
 
     log(`メッセージ送信開始: ${text.substring(0, 10)}...`);
+    setSendError(null);
+    lastSendTextRef.current = text;
 
     // Abort any existing request
     if (abortControllerRef.current) {
@@ -525,6 +576,7 @@ export default function Home() {
       if (response.ok) {
         const data = await response.json();
         log('レスポンス受信');
+        setSendError(null);
 
         // Update bootstrap state
         if (data.identity || data.user) {
@@ -550,6 +602,7 @@ export default function Home() {
       } else {
         const errorData = await response.json().catch(() => ({}));
         log('チャットAPIエラー: ' + (errorData.error || response.status));
+        setSendError('送信に失敗しました。ネットワークを確認して再送してください。');
         setIsGeneratingAudio(false);
       }
     } catch (error) {
@@ -557,6 +610,7 @@ export default function Home() {
         log('メッセージ送信が中断されました');
       } else {
         log('送信エラー: ' + (error as Error).message);
+        setSendError('送信に失敗しました。ネットワークを確認して再送してください。');
       }
     } finally {
       if (abortControllerRef.current === controller) {
@@ -580,12 +634,13 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: messages.map(m => ({ role: m.role, content: m.content })),
-          userId: 'default',
+          userId,
         }),
       });
 
       if (!summarizeResponse.ok) {
         log('要約失敗');
+        pushNotice('error', '要約に失敗しました。少し時間を置いて再度お試しください。');
         return;
       }
 
@@ -601,13 +656,15 @@ export default function Home() {
           title: summaryData.title,
           summary: summaryData.summary,
           messages: messages.map(m => ({ role: m.role, content: m.content })),
+          userName: bootstrap.user?.callName || bootstrap.user?.name || 'わたし',
+          aiName: bootstrap.identity?.name || 'ジョージ',
         }),
       });
 
       if (saveResponse.ok) {
         const saveData = await saveResponse.json();
         log('Obsidian保存完了: ' + saveData.filename);
-        alert(`✅ Obsidianに保存しました\n\n📁 ${saveData.filename}\n📝 ${summaryData.title}`);
+        pushNotice('success', 'Obsidianに保存しました。');
       } else {
         const errorData = await saveResponse.json();
         log('Obsidian保存失敗: ' + (errorData.details || errorData.error));
@@ -630,7 +687,7 @@ tags:
 ${summaryData.summary}
 
 ## 対話履歴
-${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content}`).join('\n\n')}
+${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || bootstrap.user?.name || 'わたし') : (bootstrap.identity?.name || 'ジョージ')}\n${m.content}`).join('\n\n')}
 `;
         const blob = new Blob([markdownContent], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
@@ -645,13 +702,15 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         setTimeout(() => {
           URL.revokeObjectURL(url);
         }, 1000);
+        pushNotice('info', 'Obsidian保存に失敗したため、ファイルをダウンロードしました。');
       }
     } catch (error) {
       log('保存エラー: ' + (error as Error).message);
+      pushNotice('error', '保存に失敗しました。通信状況をご確認ください。');
     } finally {
       setIsSummarizing(false);
     }
-  }, [messages, isSummarizing, log]);
+  }, [messages, isSummarizing, log, bootstrap, userId, pushNotice]);
 
   // Handle actual tarot draw after shuffle
   const processTarotDraw = useCallback(() => {
@@ -726,11 +785,13 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
   // Share to native apps (Web Share API) - with user-friendly formatting
   const handleShare = useCallback(async () => {
     if (messages.length === 0) {
-      alert('共有する内容がありません');
+      pushNotice('info', '共有する内容がありません。');
       return;
     }
 
     log('共有用に整理中...');
+    setIsSharing(true);
+    pushNotice('info', '共有テキストを準備中...');
 
     try {
       // Step 1: Start the share process immediately if titles/text are ready
@@ -767,21 +828,24 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
       if (navigator.share) {
         try {
           await navigator.share({ title: shareTitle, text: shareText });
+          pushNotice('success', '共有しました。');
         } catch (error) {
           console.error('navigator.share failed:', error);
           await navigator.clipboard.writeText(shareText);
-          alert('共有メニューの起動に失敗したため、内容をクリップボードにコピーしました。');
+          pushNotice('info', '共有メニューの起動に失敗したため、内容をコピーしました。');
         }
       } else {
         await navigator.clipboard.writeText(shareText);
-        alert('クリップボードにコピーしました！');
+        pushNotice('success', 'クリップボードにコピーしました。');
       }
     } catch (error) {
       console.error('handleShare error:', error);
       log('共有エラー: ' + (error as Error).message);
-      alert('共有に失敗しました: ' + (error as Error).message);
+      pushNotice('error', '共有に失敗しました。通信状況をご確認ください。');
+    } finally {
+      setIsSharing(false);
     }
-  }, [messages, log]);
+  }, [messages, log, pushNotice]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -789,7 +853,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
   };
 
   // Push-to-talk: start on press
-  const handleMicDown = (e: React.MouseEvent | React.TouchEvent) => {
+  const handleMicDown = (e: React.PointerEvent) => {
     e.preventDefault();
     log('押した');
 
@@ -806,11 +870,16 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
   };
 
   // Push-to-talk: send on release
-  const handleMicUp = (e: React.MouseEvent | React.TouchEvent) => {
+  const handleMicUp = (e: React.PointerEvent) => {
     e.preventDefault();
     log('離した');
     stopAndSend();
   };
+
+  const visibleMessages = messages.length > MAX_RENDER_MESSAGES
+    ? messages.slice(-MAX_RENDER_MESSAGES)
+    : messages;
+  const isMessagesTrimmed = messages.length > MAX_RENDER_MESSAGES;
 
   return (
     <main className="fixed inset-0 bg-black text-white overflow-hidden flex flex-col">
@@ -861,18 +930,20 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                   >
                     {/* Simple loading bar or nothing to keep it clean */}
                     <div className="h-0.5 w-32 bg-white/10 overflow-hidden rounded-full">
-                      <motion.div
-                        animate={{ x: [-128, 128] }}
-                        transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-                        className="h-full w-full bg-blue-500/50"
-                      />
+                      {!prefersReducedMotion && (
+                        <motion.div
+                          animate={{ x: [-128, 128] }}
+                          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                          className="h-full w-full bg-blue-500/50"
+                        />
+                      )}
                     </div>
                     <motion.p
-                      animate={{ opacity: [0.3, 0.7, 0.3] }}
-                      transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                      animate={prefersReducedMotion ? { opacity: 0.7 } : { opacity: [0.3, 0.7, 0.3] }}
+                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 3, ease: 'easeInOut' }}
                       className="text-white/50 font-light text-sm tracking-[0.2em] mt-4"
                     >
-                      目覚めています...
+                      準備しています...
                     </motion.p>
                   </motion.div>
                 )}
@@ -890,6 +961,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                       e.preventDefault();
                       handleTapToStart();
                     }}
+                    aria-label="タップして開始"
                     className="px-8 py-3 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 cursor-pointer active:bg-white/20 transition-colors"
                   >
                     <motion.p
@@ -902,6 +974,19 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                   </motion.button>
                 )}
               </AnimatePresence>
+
+              {/* Retry button when init failed */}
+              {initError && (
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.6 }}
+                  onClick={() => prepareInBackground()}
+                  className="px-6 py-2 rounded-full bg-white/5 border border-white/20 text-white/70 text-sm hover:bg-white/10 transition-colors"
+                >
+                  もう一度試す
+                </motion.button>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -909,7 +994,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
 
 
       {/* Aurora Glow Effect */}
-      <GlowVisualizer isActive={isListening || isSending || isSpeaking} />
+      <GlowVisualizer isActive={!prefersReducedMotion && (isListening || isSending || isSpeaking)} />
 
       {/* Top Bar */}
       <div className="relative z-20 flex items-center justify-between px-4 py-3 safe-area-top min-h-[60px]">
@@ -917,6 +1002,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         <div className="flex-1 flex justify-start">
           <button
             onClick={() => setTtsEnabled(prev => !prev)}
+            aria-label={ttsEnabled ? '音声をオフ' : '音声をオン'}
             className="p-2 text-white/50 hover:text-white transition-colors"
           >
             {ttsEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
@@ -927,18 +1013,18 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 text-white/90">
           <div className="flex items-center gap-1">
             <motion.div
-              animate={isListening || isSpeaking ? { opacity: [0.5, 1, 0.5] } : { opacity: 0.8 }}
-              transition={{ repeat: Infinity, duration: 1.5 }}
+              animate={prefersReducedMotion ? { opacity: 0.8 } : (isListening || isSpeaking ? { opacity: [0.5, 1, 0.5] } : { opacity: 0.8 })}
+              transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1.5 }}
               className="w-0.5 h-3 bg-white/80 rounded-full"
             />
             <motion.div
-              animate={isListening || isSpeaking ? { opacity: [0.3, 0.8, 0.3] } : { opacity: 0.6 }}
-              transition={{ repeat: Infinity, duration: 1.5, delay: 0.2 }}
+              animate={prefersReducedMotion ? { opacity: 0.6 } : (isListening || isSpeaking ? { opacity: [0.3, 0.8, 0.3] } : { opacity: 0.6 })}
+              transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1.5, delay: 0.2 }}
               className="w-0.5 h-2 bg-white/60 rounded-full"
             />
             <motion.div
-              animate={isListening || isSpeaking ? { opacity: [0.5, 1, 0.5] } : { opacity: 0.8 }}
-              transition={{ repeat: Infinity, duration: 1.5, delay: 0.4 }}
+              animate={prefersReducedMotion ? { opacity: 0.8 } : (isListening || isSpeaking ? { opacity: [0.5, 1, 0.5] } : { opacity: 0.8 })}
+              transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1.5, delay: 0.4 }}
               className="w-0.5 h-3 bg-white/80 rounded-full"
             />
           </div>
@@ -951,12 +1037,14 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
         <div className="flex-1 flex justify-end items-center gap-1">
           <button
             onClick={() => setShowChat(prev => !prev)}
+            aria-label={showChat ? 'チャットを隠す' : 'チャットを表示'}
             className="p-2 text-white/50 hover:text-white transition-colors"
           >
             {showChat ? <ChevronDown size={22} /> : <MessageSquare size={22} />}
           </button>
           <button
             onClick={() => setShowSettings(true)}
+            aria-label="設定を開く"
             className="p-2 text-white/50 hover:text-white transition-colors"
           >
             <Settings size={20} />
@@ -1011,7 +1099,68 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
             className="flex-1 overflow-y-auto px-4 pb-4 z-10"
           >
             <div className="max-w-2xl mx-auto space-y-4 pt-4">
-              {messages.map((msg) => (
+              {isMessagesTrimmed && (
+                <div className="flex justify-center">
+                  <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white/60 text-xs">
+                    古いメッセージは省略表示中です
+                  </div>
+                </div>
+              )}
+              {isPreparing && messages.length === 0 && (
+                <div className="flex justify-start">
+                  <div className="px-4 py-3 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center gap-2">
+                    <motion.div
+                      animate={prefersReducedMotion ? undefined : { rotate: 360 }}
+                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
+                      className="text-white/60"
+                    >
+                      <Loader2 size={16} />
+                    </motion.div>
+                    <span className="text-white/50 text-sm">準備しています...</span>
+                  </div>
+                </div>
+              )}
+              {notice && (
+                <div className="flex justify-center">
+                  <div
+                    className={`px-4 py-3 rounded-2xl text-sm border ${notice.type === 'success'
+                      ? 'bg-green-500/20 border-green-500/30 text-green-100'
+                      : notice.type === 'error'
+                        ? 'bg-red-500/20 border-red-500/30 text-red-100'
+                        : 'bg-white/10 border-white/20 text-white/80'
+                      }`}
+                  >
+                    {notice.message}
+                  </div>
+                </div>
+              )}
+              {initError && (
+                <div className="flex justify-center">
+                  <div className="px-4 py-3 rounded-2xl bg-white/10 border border-white/20 text-white/80 text-sm flex items-center gap-3">
+                    <span>{initError}</span>
+                    <button
+                      onClick={() => prepareInBackground()}
+                      className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-xs"
+                    >
+                      再試行
+                    </button>
+                  </div>
+                </div>
+              )}
+              {sendError && (
+                <div className="flex justify-center">
+                  <div className="px-4 py-3 rounded-2xl bg-red-500/20 border border-red-500/30 text-red-100 text-sm flex items-center gap-3">
+                    <span>{sendError}</span>
+                    <button
+                      onClick={() => sendMessage(lastSendTextRef.current)}
+                      className="px-3 py-1 rounded-full bg-red-500/40 hover:bg-red-500/60 text-xs"
+                    >
+                      再送
+                    </button>
+                  </div>
+                </div>
+              )}
+              {visibleMessages.map((msg) => (
                 <motion.div
                   key={msg.id}
                   initial={{ opacity: 0, y: 10 }}
@@ -1045,13 +1194,13 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 >
                   <div className="px-4 py-3 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center gap-2">
                     <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                      animate={prefersReducedMotion ? undefined : { rotate: 360 }}
+                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
                       className="text-white/60"
                     >
                       <Loader2 size={16} />
                     </motion.div>
-                    <span className="text-white/50 text-sm">考えています...</span>
+                    <span className="text-white/50 text-sm">返信を考えています...</span>
                   </div>
                 </motion.div>
               )}
@@ -1065,13 +1214,13 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 >
                   <div className="px-4 py-2 rounded-full bg-white/5 backdrop-blur-sm flex items-center gap-2">
                     <motion.div
-                      animate={{ scale: [1, 1.2, 1] }}
-                      transition={{ repeat: Infinity, duration: 1 }}
+                      animate={prefersReducedMotion ? undefined : { scale: [1, 1.2, 1] }}
+                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1 }}
                       className="text-white/40"
                     >
                       <Volume2 size={14} />
                     </motion.div>
-                    <span className="text-white/40 text-xs">音声生成中...</span>
+                    <span className="text-white/40 text-xs">音声を準備中...</span>
                   </div>
                 </motion.div>
               )}
@@ -1093,6 +1242,40 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
           >
             {messages[messages.length - 1]?.content}
           </motion.p>
+        </div>
+      )}
+
+      {/* Non-chat loading state */}
+      {!showChat && messages.length === 0 && isPreparing && (
+        <div className="flex-1 flex items-center justify-center z-10 px-8">
+          <div className="px-4 py-3 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center gap-2">
+            <motion.div
+              animate={prefersReducedMotion ? undefined : { rotate: 360 }}
+              transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
+              className="text-white/60"
+            >
+              <Loader2 size={16} />
+            </motion.div>
+            <span className="text-white/50 text-sm">準備しています...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Non-chat status pill */}
+      {!showChat && (isSending || sendError || initError || notice) && (
+        <div className="absolute bottom-36 left-1/2 -translate-x-1/2 z-40 px-4">
+          <div
+            className={`px-4 py-2 rounded-full text-xs sm:text-sm border backdrop-blur-md ${sendError || initError
+              ? 'bg-red-500/20 border-red-500/30 text-red-100'
+              : notice?.type === 'success'
+                ? 'bg-green-500/20 border-green-500/30 text-green-100'
+                : notice?.type === 'error'
+                  ? 'bg-red-500/20 border-red-500/30 text-red-100'
+                  : 'bg-white/10 border-white/20 text-white/80'
+              }`}
+          >
+            {isSending ? '送信中...' : sendError || initError || notice?.message}
+          </div>
         </div>
       )}
 
@@ -1120,7 +1303,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
             className="bg-white/10 backdrop-blur-md rounded-2xl px-6 py-3 max-w-md"
           >
             <p className="text-white/80 text-sm text-center">
-              {currentTranscript || '🎤 押したまま話してください...'}
+              {currentTranscript || '押したまま話してください...'}
             </p>
           </motion.div>
         </div>
@@ -1162,6 +1345,7 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 }}
                 whileTap={{ scale: 0.95 }}
                 title="Weekly Radio"
+                aria-label="ウィークリーラジオを開く"
                 className="p-4 rounded-full bg-white/10 backdrop-blur-sm text-gold-400 hover:bg-white/20 border border-gold-500/30 transition-all shadow-[0_0_15px_rgba(212,175,55,0.2)] relative"
               >
                 <Radio size={24} />
@@ -1193,11 +1377,11 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                   <>
                     <motion.div
                       initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{
+                      animate={prefersReducedMotion ? { opacity: 0.25, scale: 1 } : {
                         opacity: [0, 0.4, 0],
                         scale: [1, 1.5, 1.8],
                       }}
-                      transition={{
+                      transition={prefersReducedMotion ? undefined : {
                         repeat: Infinity,
                         duration: 1.5,
                         ease: "easeOut"
@@ -1207,11 +1391,11 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                     />
                     <motion.div
                       initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{
+                      animate={prefersReducedMotion ? { opacity: 0.2, scale: 1 } : {
                         opacity: [0, 0.6, 0],
                         scale: [1, 1.3, 1.5],
                       }}
-                      transition={{
+                      transition={prefersReducedMotion ? undefined : {
                         repeat: Infinity,
                         duration: 1.5,
                         delay: 0.2,
@@ -1224,12 +1408,12 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 )}
               </AnimatePresence>
               <motion.button
-                onMouseDown={handleMicDown}
-                onMouseUp={handleMicUp}
-                onTouchStart={handleMicDown}
-                onTouchEnd={handleMicUp}
+                onPointerDown={handleMicDown}
+                onPointerUp={handleMicUp}
+                onPointerCancel={handleMicUp}
                 whileTap={{ scale: 0.95 }}
                 disabled={!sttSupported}
+                aria-label="マイクを押して話す"
                 className={`p-5 sm:p-6 rounded-full transition-all select-none relative z-10 ${isListening
                   ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-500/40'
                   : 'bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10'
@@ -1245,12 +1429,13 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
                 disabled={isSending || messages.length === 0 || isSummarizing}
                 whileTap={{ scale: 0.95 }}
                 title="要約して保存"
+                aria-label="要約して保存"
                 className={`p-3 sm:p-4 rounded-full bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10 transition-all ${isSending || messages.length === 0 ? 'opacity-20 cursor-not-allowed' : ''}`}
               >
                 {isSummarizing ? (
                   <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                    animate={prefersReducedMotion ? undefined : { rotate: 360 }}
+                    transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
                   >
                     <Loader2 size={18} className="sm:w-6 sm:h-6" />
                   </motion.div>
@@ -1260,12 +1445,22 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
               </motion.button>
               <motion.button
                 onClick={handleShare}
-                disabled={isSending || messages.length === 0}
+                disabled={isSending || isSharing || messages.length === 0}
                 whileTap={{ scale: 0.95 }}
                 title="スマホに共有"
+                aria-label="共有する"
                 className={`p-3 sm:p-4 rounded-full bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10 transition-all ${isSending || messages.length === 0 ? 'opacity-20 cursor-not-allowed' : ''}`}
               >
-                <Share2 size={18} className="sm:w-6 sm:h-6" />
+                {isSharing ? (
+                  <motion.div
+                    animate={prefersReducedMotion ? undefined : { rotate: 360 }}
+                    transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
+                  >
+                    <Loader2 size={18} className="sm:w-6 sm:h-6" />
+                  </motion.div>
+                ) : (
+                  <Share2 size={18} className="sm:w-6 sm:h-6" />
+                )}
               </motion.button>
             </div>
 
@@ -1274,8 +1469,20 @@ ${messages.map(m => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content
       </div>
       <audio
         ref={audioRef}
-        onEnded={() => setIsSpeaking(false)}
-        onError={() => setIsSpeaking(false)}
+        onEnded={() => {
+          setIsSpeaking(false);
+          if (audioRef.current?.src && audioRef.current.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audioRef.current.src);
+            audioRef.current.src = '';
+          }
+        }}
+        onError={() => {
+          setIsSpeaking(false);
+          if (audioRef.current?.src && audioRef.current.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audioRef.current.src);
+            audioRef.current.src = '';
+          }
+        }}
         style={{ display: 'none' }}
       />
       <audio

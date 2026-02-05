@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatWithClaude } from '@/lib/anthropic/client';
 import { updateJournal, getTodayDate } from '@/lib/journal/storage';
+import { getUserProfile, getAIIdentity } from '@/lib/db/redis';
 
 export async function POST(request: NextRequest) {
     try {
@@ -10,10 +11,18 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Messages are required' }, { status: 400 });
         }
 
+        // Fetch names from DB
+        const [userProfile, aiIdentity] = await Promise.all([
+            getUserProfile(userId),
+            getAIIdentity(),
+        ]);
+        const userName = userProfile?.displayName || 'わたし';
+        const aiName = aiIdentity?.name || 'ジョージ';
+
         // Prepare prompt for summarization
         const conversationText = messages
             .map((m: any) => {
-                const roleName = m.role === 'assistant' ? 'Assistant' : 'User';
+                const roleName = m.role === 'assistant' ? aiName : userName;
                 const content = m.role === 'tarot' ? `[Card Draw: ${m.content}]` : m.content;
                 return `${roleName}: ${content}`;
             })

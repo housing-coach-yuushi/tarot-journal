@@ -197,10 +197,11 @@ class KieApiClient {
      * Text-to-Dialogue using ElevenLabs Dialogue v3
      */
     async generateDialogue(script: { speaker: string; text: string }[]): Promise<string> {
-        // Map common speaker names to Kie.ai supported voices
+        // Map speaker names to Kie.ai Text-to-Dialogue supported voice names
+        // Note: Kie.ai doesn't support "Aria" directly, so we map to "Alice" (closest female voice)
         const voiceMapping: Record<string, string> = {
             'George': 'George',
-            'Aria': 'Alice' // Map Aria to Alice (valid female voice)
+            'Aria': 'Alice',
         };
 
         const dialogue = script.map(line => ({
@@ -211,6 +212,18 @@ class KieApiClient {
         return this.createTaskAndWait('elevenlabs/text-to-dialogue-v3', {
             dialogue,
             language_code: 'ja',
+        });
+    }
+
+    /**
+     * Speech-to-Text using ElevenLabs Scribe v2
+     * Expects a base64 encoded audio string or a direct Blob/Buffer depending on implementation
+     */
+    async speechToText(audioBase64: string): Promise<string> {
+        return this.createTaskAndWait('elevenlabs/scribe-v2', {
+            audio: audioBase64,
+            language_code: 'ja',
+            tag_audio_events: true,
         });
     }
 }

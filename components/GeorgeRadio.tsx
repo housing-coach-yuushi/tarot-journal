@@ -29,10 +29,36 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const [error, setError] = useState<string | null>(null);
     const [currentLineIndex, setCurrentLineIndex] = useState(0);
     const [audioLevel, setAudioLevel] = useState(0);
+    const [progress, setProgress] = useState(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const analyzerRef = useRef<AnalyserNode | null>(null);
     const animationFrameRef = useRef<number | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
+
+    // Track audio progress and estimate current line
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        const handleTimeUpdate = () => {
+            if (audio.duration && isFinite(audio.duration)) {
+                const pct = audio.currentTime / audio.duration;
+                setProgress(pct);
+
+                // Estimate current line based on progress
+                if (script.length > 0) {
+                    const idx = Math.min(
+                        Math.floor(pct * script.length),
+                        script.length - 1
+                    );
+                    setCurrentLineIndex(idx);
+                }
+            }
+        };
+
+        audio.addEventListener('timeupdate', handleTimeUpdate);
+        return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
+    }, [script]);
 
     // Initial check when opened
     useEffect(() => {
@@ -397,10 +423,9 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                                 {/* Player Controls */}
                                 <div className="w-full max-w-sm bg-black/40 backdrop-blur-3xl border border-white/10 rounded-[3rem] p-7 shadow-2xl">
                                     <div className="relative w-full h-1 bg-white/5 rounded-full mb-8 overflow-hidden">
-                                        <motion.div
-                                            className="h-full bg-gradient-to-r from-blue-600 via-cyan-400 to-blue-600 shadow-[0_0_15px_rgba(59,130,246,0.3)]"
-                                            animate={isPlaying ? { x: ['-100%', '0%'] } : { x: '-100%' }}
-                                            transition={{ duration: 180, ease: "linear" }}
+                                        <div
+                                            className="h-full bg-gradient-to-r from-blue-600 via-cyan-400 to-blue-600 shadow-[0_0_15px_rgba(59,130,246,0.3)] transition-all duration-300 ease-linear"
+                                            style={{ width: `${progress * 100}%` }}
                                         />
                                     </div>
 

@@ -5,6 +5,16 @@
 import { redis, getAIIdentity } from '@/lib/db/redis';
 
 const PREFIX = 'tarot-journal:';
+const JOURNAL_INDEX_MAX = 365;
+const JOURNAL_ENTRY_TTL_SEC = 60 * 60 * 24 * 365; // 365 days
+const JOURNAL_INDEX_TTL_SEC = 60 * 60 * 24 * 365; // align with index size
+
+const journalIndexUpsertScript = redis.createScript<number>(`
+  redis.call('LREM', KEYS[1], 0, ARGV[1])
+  redis.call('LPUSH', KEYS[1], ARGV[1])
+  redis.call('LTRIM', KEYS[1], 0, tonumber(ARGV[2]))
+  return 1
+`);
 
 export interface JournalMessage {
   role: 'user' | 'assistant';
@@ -56,6 +66,7 @@ export async function getTodayJournal(userId: string): Promise<JournalEntry> {
   };
 
   await redis.set(key, entry);
+  await redis.expire(key, JOURNAL_ENTRY_TTL_SEC);
 
   // Add to index
   await addToIndex(userId, date);
@@ -80,6 +91,7 @@ export async function addMessage(
 
   const key = `${PREFIX}entry:${userId}:${entry.date}`;
   await redis.set(key, entry);
+  await redis.expire(key, JOURNAL_ENTRY_TTL_SEC);
 
   return entry;
 }
@@ -104,6 +116,7 @@ export async function updateJournal(
   };
 
   await redis.set(key, updated);
+  await redis.expire(key, JOURNAL_ENTRY_TTL_SEC);
   return updated;
 }
 
@@ -136,13 +149,22 @@ export async function getRecentJournals(userId: string, limit: number = 7): Prom
  */
 async function addToIndex(userId: string, date: string): Promise<void> {
   const indexKey = `${PREFIX}index:${userId}`;
-  const dates = await redis.get<string[]>(indexKey) || [];
+  const type = await redis.type(indexKey);
 
-  if (!dates.includes(date)) {
-    dates.unshift(date);
-    // Keep last 365 days
-    await redis.set(indexKey, dates.slice(0, 365));
+  if (type === 'string') {
+    const legacy = await redis.get<string[]>(indexKey);
+    await redis.del(indexKey);
+    if (legacy?.length) {
+      for (const d of legacy) {
+        await redis.lpush(indexKey, d);
+      }
+      await redis.ltrim(indexKey, 0, JOURNAL_INDEX_MAX - 1);
+      await redis.expire(indexKey, JOURNAL_INDEX_TTL_SEC);
+    }
   }
+
+  await journalIndexUpsertScript.exec([indexKey], [date, String(JOURNAL_INDEX_MAX - 1)]);
+  await redis.expire(indexKey, JOURNAL_INDEX_TTL_SEC);
 }
 
 /**
@@ -150,7 +172,23 @@ async function addToIndex(userId: string, date: string): Promise<void> {
  */
 export async function getJournalDates(userId: string): Promise<string[]> {
   const indexKey = `${PREFIX}index:${userId}`;
-  return await redis.get<string[]>(indexKey) || [];
+  const type = await redis.type(indexKey);
+
+  if (type === 'string') {
+    const legacy = await redis.get<string[]>(indexKey);
+    await redis.del(indexKey);
+    if (legacy?.length) {
+      for (const d of legacy) {
+        await redis.lpush(indexKey, d);
+      }
+      await redis.ltrim(indexKey, 0, JOURNAL_INDEX_MAX - 1);
+      await redis.expire(indexKey, JOURNAL_INDEX_TTL_SEC);
+      return legacy;
+    }
+    return [];
+  }
+
+  return await redis.lrange<string>(indexKey, 0, -1) || [];
 }
 
 /**

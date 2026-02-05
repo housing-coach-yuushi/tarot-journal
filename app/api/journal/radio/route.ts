@@ -5,6 +5,7 @@ import { generateWeeklyRadioScript } from '@/lib/journal/radio_script_generator'
 import { getKieApiClient } from '@/lib/keiapi/client';
 
 const CACHE_PREFIX = 'tarot-journal:radio-cache:';
+const RADIO_CACHE_TTL_SEC = 60 * 60 * 24 * 3; // 3 days
 
 export async function POST(req: NextRequest) {
     try {
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
 
         // Fetch real user name from profile if available
         const profile = await getUserProfile(userId);
-        const userName = profile?.displayName || providedName || 'ユウシ';
+        const userName = profile?.displayName || providedName || 'お客様';
 
         // 1. Fetch journal entries from the past 7 days
         const journals = await getJournalsFromPastDays(userId, 7);
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
 
         // 6. Save to Cache
         await redis.set(cacheKey, { script, audioUrl, journalIds, startDate, endDate });
+        await redis.expire(cacheKey, RADIO_CACHE_TTL_SEC);
 
         return NextResponse.json({
             success: true,

@@ -8,7 +8,7 @@ const OBSIDIAN_DAILY_PATH = '/Users/yuushinakashima/Library/Mobile Documents/iCl
 
 export async function POST(request: NextRequest) {
     try {
-        const { title, summary, messages, date } = await request.json();
+        const { title, summary, messages, date, userName, aiName } = await request.json();
 
         if (!title || !messages) {
             return NextResponse.json({ error: 'Title and messages are required' }, { status: 400 });
@@ -33,7 +33,7 @@ tags:
 ${summary || '（要約なし）'}
 
 ## 対話履歴
-${messages.map((m: any) => `### ${m.role === 'user' ? '裕士' : 'カイ'}\n${m.content}`).join('\n\n')}
+${messages.map((m: any) => `### ${m.role === 'user' ? (userName || 'わたし') : (aiName || 'ジョージ')}\n${m.content}`).join('\n\n')}
 `;
 
         // Ensure directory exists

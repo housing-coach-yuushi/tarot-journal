@@ -3,7 +3,7 @@
  */
 
 import { JournalEntry, JournalMessage } from './storage';
-import { getKieApiClient } from '../keiapi/client';
+import { chatWithClaude } from '../anthropic/client';
 
 export interface RadioSpeaker {
     name: string;
@@ -43,8 +43,6 @@ export async function generateWeeklyRadioScript(
     userName: string,
     journals: JournalEntry[]
 ): Promise<RadioScript> {
-    const client = getKieApiClient();
-
     // Sort journals by date ascending (oldest first) for the radio flow
     const sortedJournals = [...journals].sort((a, b) => a.date.localeCompare(b.date));
 
@@ -86,10 +84,10 @@ ${weekSummary}
 
 上記データに基づき、${userName}さんの心に深く残る、具体的で温かいコーチングラジオ台本を作成してください。`;
 
-    const response = await client.chat([
+    const response = await chatWithClaude([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
-    ], 'gemini-3-flash');
+    ]);
 
     try {
         // Extract JSON (handle potential wrapper text)

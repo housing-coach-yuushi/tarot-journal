@@ -6,6 +6,32 @@ import { redis } from '@/lib/db/redis';
 import { ALL_CARDS, type TarotCard } from './cards';
 
 const PREFIX = 'tarot-journal:';
+const JOURNAL_INDEX_MAX = 365;
+const READING_TTL_SEC = 60 * 60 * 24 * 365; // 365 days
+const JOURNAL_ENTRY_TTL_SEC = 60 * 60 * 24 * 365; // 365 days
+const JOURNAL_INDEX_TTL_SEC = 60 * 60 * 24 * 365; // align with index size
+
+const journalIndexUpsertScript = redis.createScript<number>(`
+  redis.call('LREM', KEYS[1], 0, ARGV[1])
+  redis.call('LPUSH', KEYS[1], ARGV[1])
+  redis.call('LTRIM', KEYS[1], 0, tonumber(ARGV[2]))
+  return 1
+`);
+
+async function ensureJournalIndexList(indexKey: string): Promise<void> {
+  const type = await redis.type(indexKey);
+  if (type === 'string') {
+    const legacy = await redis.get<string[]>(indexKey);
+    await redis.del(indexKey);
+    if (legacy?.length) {
+      for (const d of legacy) {
+        await redis.lpush(indexKey, d);
+      }
+      await redis.ltrim(indexKey, 0, JOURNAL_INDEX_MAX - 1);
+      await redis.expire(indexKey, JOURNAL_INDEX_TTL_SEC);
+    }
+  }
+}
 
 export interface DailyReading {
   date: string;  // YYYY-MM-DD
@@ -100,6 +126,7 @@ export async function drawTodayCard(userId: string): Promise<{ card: TarotCard; 
 
   // Save reading
   await redis.set(`${PREFIX}reading:${userId}:${date}`, reading);
+  await redis.expire(`${PREFIX}reading:${userId}:${date}`, READING_TTL_SEC);
 
   return { card, reading, isNew: true };
 }
@@ -118,6 +145,7 @@ export async function updateReading(
 
   const updated = { ...reading, ...updates };
   await redis.set(`${PREFIX}reading:${userId}:${date}`, updated);
+  await redis.expire(`${PREFIX}reading:${userId}:${date}`, READING_TTL_SEC);
 
   return updated;
 }
@@ -141,15 +169,13 @@ export async function saveJournalEntry(
 
   // Save entry
   await redis.set(`${PREFIX}journal:${userId}:${entry.date}`, journalEntry);
+  await redis.expire(`${PREFIX}journal:${userId}:${entry.date}`, JOURNAL_ENTRY_TTL_SEC);
 
   // Add to user's journal index
   const indexKey = `${PREFIX}journal-index:${userId}`;
-  const index = await redis.get<string[]>(indexKey) || [];
-  if (!index.includes(entry.date)) {
-    index.unshift(entry.date);
-    // Keep last 365 days
-    await redis.set(indexKey, index.slice(0, 365));
-  }
+  await ensureJournalIndexList(indexKey);
+  await journalIndexUpsertScript.exec([indexKey], [entry.date, String(JOURNAL_INDEX_MAX - 1)]);
+  await redis.expire(indexKey, JOURNAL_INDEX_TTL_SEC);
 
   return journalEntry;
 }
@@ -166,7 +192,8 @@ export async function getJournalEntry(userId: string, date: string): Promise<Jou
  */
 export async function getRecentJournals(userId: string, limit: number = 7): Promise<JournalEntry[]> {
   const indexKey = `${PREFIX}journal-index:${userId}`;
-  const index = await redis.get<string[]>(indexKey) || [];
+  await ensureJournalIndexList(indexKey);
+  const index = await redis.lrange<string>(indexKey, 0, limit - 1) || [];
 
   const entries: JournalEntry[] = [];
   for (const date of index.slice(0, limit)) {
@@ -189,12 +216,21 @@ export async function getReadingHistory(
 
   // Get all days in the month
   const daysInMonth = new Date(year, month, 0).getDate();
+  const dates: string[] = [];
+  const keys: string[] = [];
+  const monthStr = month.toString().padStart(2, '0');
 
   for (let day = 1; day <= daysInMonth; day++) {
-    const date = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-    const reading = await redis.get<DailyReading>(`${PREFIX}reading:${userId}:${date}`);
+    const date = `${year}-${monthStr}-${day.toString().padStart(2, '0')}`;
+    dates.push(date);
+    keys.push(`${PREFIX}reading:${userId}:${date}`);
+  }
+
+  const readings = await redis.mget<DailyReading[]>(...keys);
+  for (let i = 0; i < dates.length; i++) {
+    const reading = readings?.[i] ?? null;
     if (reading) {
-      history.set(date, reading);
+      history.set(dates[i], reading);
     }
   }
 
@@ -206,7 +242,8 @@ export async function getReadingHistory(
  */
 export async function getJournalStreak(userId: string): Promise<number> {
   const indexKey = `${PREFIX}journal-index:${userId}`;
-  const index = await redis.get<string[]>(indexKey) || [];
+  await ensureJournalIndexList(indexKey);
+  const index = await redis.lrange<string>(indexKey, 0, -1) || [];
 
   if (index.length === 0) return 0;
 
