@@ -458,6 +458,15 @@ export default function Home() {
           playTTS(data.message);
         }
       }
+    } else {
+      // Fallback: Show a friendly message even if the API is down
+      log('初期メッセージが取得できなかったため、フォールバックメッセージを表示します');
+      setMessages([{
+        id: 'error-fallback-' + Date.now(),
+        role: 'assistant' as const,
+        content: '...。......あ、れ......。すまない、今は少し意識が遠のいているみたいだ（通信エラー）。少し時間を置いてからまた話しかけてくれるかい？',
+        timestamp: new Date(),
+      }]);
     }
   }, [isReady, isLoading, audioUnlocked, log, ttsEnabled, playTTS]);
 
