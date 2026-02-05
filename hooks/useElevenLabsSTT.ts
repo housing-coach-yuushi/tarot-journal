@@ -14,115 +14,147 @@ export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
     const [isSupported, setIsSupported] = useState(false);
     const [debugStatus, setDebugStatus] = useState('init');
 
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const audioChunksRef = useRef<Blob[]>([]);
+    const recognitionRef = useRef<any>(null);
     const onFinalResultRef = useRef(onFinalResult);
+    const finalTranscriptRef = useRef('');
+    const interimTranscriptRef = useRef('');
+    const cancelRef = useRef(false);
 
     useEffect(() => {
         onFinalResultRef.current = onFinalResult;
     }, [onFinalResult]);
 
     useEffect(() => {
-        if (typeof window !== 'undefined' && navigator.mediaDevices && window.MediaRecorder) {
-            setIsSupported(true);
+        if (typeof window === 'undefined') return;
+
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            setIsSupported(false);
+            return;
         }
+
+        setIsSupported(true);
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP';
+        recognition.interimResults = true;
+        recognition.continuous = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+            setIsListening(true);
+            setDebugStatus('録音中 (ブラウザ)');
+        };
+
+        recognition.onresult = (event: any) => {
+            let finalText = '';
+            let interimText = '';
+
+            for (let i = event.resultIndex; i < event.results.length; i += 1) {
+                const transcript = event.results[i][0]?.transcript || '';
+                if (event.results[i].isFinal) {
+                    finalText += transcript;
+                } else {
+                    interimText += transcript;
+                }
+            }
+
+            if (finalText) {
+                finalTranscriptRef.current = `${finalTranscriptRef.current} ${finalText}`.trim();
+            }
+            if (interimText) {
+                interimTranscriptRef.current = interimText.trim();
+            } else {
+                interimTranscriptRef.current = '';
+            }
+
+            const combined = `${finalTranscriptRef.current} ${interimTranscriptRef.current}`.trim();
+            if (combined) {
+                setCurrentTranscript(combined);
+            }
+        };
+
+        recognition.onerror = (event: any) => {
+            const errorType = event?.error || 'unknown';
+            if (errorType === 'not-allowed' || errorType === 'service-not-allowed') {
+                setDebugStatus('マイク許可が必要です');
+            } else if (errorType === 'no-speech') {
+                setDebugStatus('音声が短すぎます');
+            } else {
+                setDebugStatus('変換エラー');
+            }
+            setIsListening(false);
+        };
+
+        recognition.onend = () => {
+            setIsListening(false);
+
+            if (cancelRef.current) {
+                cancelRef.current = false;
+                setDebugStatus('キャンセル');
+                setCurrentTranscript('');
+                finalTranscriptRef.current = '';
+                interimTranscriptRef.current = '';
+                return;
+            }
+
+            const finalText = finalTranscriptRef.current || interimTranscriptRef.current;
+            if (finalText) {
+                setDebugStatus('取得成功');
+                setCurrentTranscript(finalText);
+                onFinalResultRef.current?.(finalText);
+            } else {
+                setDebugStatus('変換失敗 (空)');
+            }
+
+            finalTranscriptRef.current = '';
+            interimTranscriptRef.current = '';
+        };
+
+        recognitionRef.current = recognition;
+
+        return () => {
+            recognition.onstart = null;
+            recognition.onresult = null;
+            recognition.onerror = null;
+            recognition.onend = null;
+            recognitionRef.current = null;
+        };
     }, []);
 
     const startListening = useCallback(async () => {
+        if (!recognitionRef.current) {
+            setDebugStatus('変換エラー');
+            return;
+        }
+
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-            // Determine supported mime type
-            const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
-                ? 'audio/mp4'
-                : MediaRecorder.isTypeSupported('audio/webm')
-                    ? 'audio/webm'
-                    : 'audio/ogg';
-
-            const recorder = new MediaRecorder(stream, { mimeType });
-            mediaRecorderRef.current = recorder;
-            audioChunksRef.current = [];
-
-            recorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunksRef.current.push(event.data);
-                }
-            };
-
-            recorder.onstart = () => {
-                setIsListening(true);
-                setDebugStatus('録音中 (ElevenLabs)');
-            };
-
-            recorder.onstop = async () => {
-                setIsListening(false);
-                setDebugStatus('処理中...');
-
-                const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-                if (audioBlob.size < 1000) { // Too small, likely noise
-                    setDebugStatus('音声が短すぎます');
-                    return;
-                }
-
-                await sendToSTT(audioBlob);
-
-                // Stop all tracks in the stream
-                stream.getTracks().forEach(track => track.stop());
-            };
-
-            recorder.start();
+            finalTranscriptRef.current = '';
+            interimTranscriptRef.current = '';
+            setCurrentTranscript('');
+            setDebugStatus('録音準備中');
+            recognitionRef.current.start();
         } catch (error) {
-            console.error('[STT] Failed to start recording:', error);
+            console.error('[STT] Failed to start recognition:', error);
             setDebugStatus('マイク許可が必要です');
         }
     }, []);
 
-    const sendToSTT = async (blob: Blob) => {
-        try {
-            const formData = new FormData();
-            const fileExt = mimeType.split('/')[1] || 'audio';
-            formData.append('audio', blob, `recording.${fileExt}`);
-
-            const response = await fetch('/api/stt', {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (!response.ok) {
-                throw new Error('STT API returned an error');
-            }
-
-            const { transcript } = await response.json();
-            if (transcript) {
-                setDebugStatus('取得成功');
-                setCurrentTranscript(transcript);
-                onFinalResultRef.current?.(transcript);
-            } else {
-                setDebugStatus('変換失敗 (空)');
-            }
-        } catch (error) {
-            console.error('[STT] Transcription failed:', error);
-            setDebugStatus('変換エラー');
-        }
-    };
-
     const stopAndSend = useCallback(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
+        if (recognitionRef.current && isListening) {
+            setDebugStatus('処理中...');
+            recognitionRef.current.stop();
         }
-    }, []);
+    }, [isListening]);
 
     const cancel = useCallback(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.onstop = null; // Prevent sending
-            mediaRecorderRef.current.stop();
-            // Stop tracks manually as onstop won't trigger the track cleanup
-            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+        if (recognitionRef.current && isListening) {
+            cancelRef.current = true;
+            recognitionRef.current.stop();
         }
         setIsListening(false);
-        audioChunksRef.current = [];
+        setCurrentTranscript('');
         setDebugStatus('キャンセル');
-    }, []);
+    }, [isListening]);
 
     return {
         isListening,
