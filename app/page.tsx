@@ -144,6 +144,16 @@ export default function Home() {
     }, ttlMs);
   }, []);
 
+  useEffect(() => {
+    if (debugStatus === 'マイク許可が必要です') {
+      pushNotice('error', 'マイクの許可が必要です。ブラウザ設定を確認してください。', 6000);
+    } else if (debugStatus === '変換エラー') {
+      pushNotice('error', '音声の変換に失敗しました。もう一度試してください。', 5000);
+    } else if (debugStatus === '音声が短すぎます') {
+      pushNotice('info', '音声が短すぎます。もう少し長く話してください。', 4000);
+    }
+  }, [debugStatus, pushNotice]);
+
 
   // Initialize userId on client side
   useEffect(() => {
@@ -295,18 +305,23 @@ export default function Home() {
           })
           .catch(() => { });
 
-        // Fetch status and initial message in parallel
-        const [statusRes, chatRes] = await Promise.all([
-          fetchWithTimeout(`/api/chat?userId=${currentUserId}`),
-          fetchWithTimeout('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ history: [], userId: currentUserId }),
-          }),
-        ]);
-        log('ステータスと初期メッセージのレスポンスを受信しました');
-
+        // Fetch status (history) first to speed up returning users
+        const statusRes = await fetchWithTimeout(`/api/chat?userId=${currentUserId}`);
         const status = await statusRes.json();
+
+        if (status?.history && status.history.length > 0) {
+          initDataRef.current = { message: '', audioUrl: null, status };
+          log(`履歴ありのため初期メッセージ取得をスキップ: ${status.history.length}件`);
+          return;
+        }
+
+        // No history: fetch initial message
+        const chatRes = await fetchWithTimeout('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ history: [], userId: currentUserId }),
+        });
+        log('初期メッセージのレスポンスを受信しました');
         let messageText = '';
         let audioUrl: string | null = null;
 
@@ -857,6 +872,13 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     e.preventDefault();
     log('押した');
 
+    if (!sttSupported) {
+      pushNotice('error', 'このブラウザでは音声入力が使えません。', 5000);
+      return;
+    }
+
+    if (isListening) return;
+
     // Prioritize microphone: Abort any pending message requests
     if (abortControllerRef.current) {
       log('マイク操作を優先するためAIへのリクエストを中断します');
@@ -873,6 +895,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
   const handleMicUp = (e: React.PointerEvent) => {
     e.preventDefault();
     log('離した');
+    if (!isListening) return;
     stopAndSend();
   };
 
