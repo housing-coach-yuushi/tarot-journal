@@ -70,7 +70,7 @@ export default function Home() {
   const prefersReducedMotion = useReducedMotion();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isReady, setIsReady] = useState(false);  // バックグラウンド準備完了
   const [isSending, setIsSending] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);  // TTS準備中
@@ -105,6 +105,8 @@ export default function Home() {
   const lastSendTextRef = useRef<string>('');
   const noticeTimerRef = useRef<number | null>(null);
   const ttsEnabledRef = useRef<boolean>(ttsEnabled);
+  const hasHistoryRef = useRef<boolean>(false);
+  // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
 
   // BGM playback control
@@ -159,13 +161,6 @@ export default function Home() {
   useEffect(() => {
     setUserId(getUserId());
   }, []);
-
-  // Show tap hint after checkin text has been visible for a moment
-  useEffect(() => {
-    if (!checkinLines) return;
-    const timer = setTimeout(() => setShowTapHint(true), 5000);
-    return () => clearTimeout(timer);
-  }, [checkinLines]);
 
   // Fallback: always allow tap after a short delay even if checkin fails
   useEffect(() => {
@@ -265,6 +260,27 @@ export default function Home() {
     setIsGeneratingAudio(false);
   }, [log]);
 
+  const unlockAudio = useCallback(async () => {
+    if (audioUnlocked || !audioRef.current) return;
+    try {
+      const audio = audioRef.current;
+      audio.volume = 1.0;
+      audio.muted = false;
+      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+      audio.load();
+      const p = audio.play();
+      if (p) {
+        await p;
+        audio.pause();
+        audio.currentTime = 0;
+      }
+      setAudioUnlocked(true);
+      log('オーディオアンロック完了');
+    } catch (e) {
+      log('オーディオアンロック失敗: ' + (e as Error).message);
+    }
+  }, [audioUnlocked, log]);
+
 
   // Ref to hold pre-fetched initial data for tap-to-start
   const initDataRef = useRef<{ message: string; audioUrl: string | null; status: BootstrapState } | null>(null);
@@ -295,83 +311,47 @@ export default function Home() {
         const currentUserId = getUserId();
         setUserId(currentUserId);
 
-        // Fetch checkin independently so it shows immediately
-        fetchWithTimeout(`/api/checkin?userId=${currentUserId}`)
-          .then(async (res) => {
-            if (res.ok) {
-              const data = await res.json();
-              setCheckinLines(data.lines);
-            }
-          })
-          .catch(() => { });
-
         // Fetch status (history) first to speed up returning users
         const statusRes = await fetchWithTimeout(`/api/chat?userId=${currentUserId}`);
         const status = await statusRes.json();
 
         if (status?.history && status.history.length > 0) {
+          hasHistoryRef.current = true;
           initDataRef.current = { message: '', audioUrl: null, status };
-          log(`履歴ありのため初期メッセージ取得をスキップ: ${status.history.length}件`);
+          log(`履歴あり: ${status.history.length}件`);
           return;
         }
 
-        // No history: fetch initial message
-        const chatRes = await fetchWithTimeout('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ history: [], userId: currentUserId }),
-        });
-        log('初期メッセージのレスポンスを受信しました');
-        let messageText = '';
-        let audioUrl: string | null = null;
-
-        if (chatRes.ok) {
-          const data = await chatRes.json();
-          messageText = data.message || '';
-          if (data.identity || data.user) {
-            status.identity = data.identity;
-            status.user = data.user;
-            status.isBootstrapped = data.isBootstrapped;
+        // No history: fetch checkin lines (text only)
+        let lines: string[] | null = null;
+        try {
+          const res = await fetchWithTimeout(`/api/checkin?userId=${currentUserId}`);
+          if (res.ok) {
+            const data = await res.json();
+            lines = data.lines;
+            setCheckinLines(data.lines);
           }
-          log(`初期メッセージ取得成功: "${messageText.substring(0, 20)}..."`);
-
-          // Pre-fetch TTS audio
-          if (messageText && ttsEnabledRef.current) {
-            try {
-              log('音声プリフェッチ中...');
-              setIsGeneratingAudio(true);
-              const ttsRes = await fetchWithTimeout('/api/tts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: messageText }),
-              }, 60000); // Wait up to 60s for pre-fetch
-
-              if (ttsRes.ok) {
-                const blob = await ttsRes.blob();
-                if (blob.size > 0) {
-                  audioUrl = URL.createObjectURL(blob);
-                  log('音声プリフェッチ完了');
-                } else {
-                  log('音声プリフェッチ失敗: blob空');
-                }
-              } else {
-                const errorData = await ttsRes.json().catch(() => ({}));
-                log(`音声プリフェッチAPIエラー: ${errorData.details || errorData.error || ttsRes.status}`);
-              }
-            } catch (e) {
-              log('プリフェッチ中断: ' + (e as Error).message);
-            } finally {
-              setIsGeneratingAudio(false);
-            }
-          }
-        } else {
-          setInitError('通信に失敗しました。再試行してください。');
-          messageText = '...。......あ、れ......。すまない、今は少し意識が遠のいているみたいだ（通信エラー）。';
+        } catch {
+          // ignore
         }
 
-        // Store prepared data
-        initDataRef.current = { message: messageText, audioUrl, status };
-        log(`バックグラウンド準備完了: メッセージ="${messageText.substring(0, 10)}...", 音声=${!!audioUrl}`);
+        setBootstrap(status);
+        const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
+        const checkin = lines && lines.length > 0 ? lines : fallbackLines;
+        const checkinMessage: Message = {
+          id: 'checkin-' + Date.now(),
+          role: 'assistant',
+          content: checkin.join('\n'),
+          timestamp: new Date(),
+        };
+        const guideMessage: Message = {
+          id: 'guide-' + Date.now(),
+          role: 'assistant',
+          content: 'マイクを押して、今の気持ちを話してみてください。',
+          timestamp: new Date(),
+        };
+        setMessages([checkinMessage, guideMessage]);
+        log('履歴なし。チェックインのみ表示します');
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log(`初期化エラー詳細: ${errMsg}`);
@@ -388,99 +368,12 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prepareInBackground]);
 
-  // Tap-to-start handler: unlock audio + show chat + play voice
+  // Tap-to-start is no longer used; keep as no-op for safety
   const handleTapToStart = useCallback(async () => {
-    // Prevent double-tap
-    if (!isLoading) return;
-    setIsLoading(false);
+    return;
+  }, []);
 
-    const data = initDataRef.current;
-
-    // Unlock audio context with user gesture
-    if (audioRef.current) {
-      try {
-        log('オーディオアンロック試行...');
-        const audio = audioRef.current;
-        audio.volume = 1.0;
-        audio.muted = false;
-
-        // If we have prepared audio, use it directly as the unlock gesture
-        if (data?.audioUrl) {
-          audio.src = data.audioUrl;
-          audio.load();
-
-          // Wait briefly for the blob to be "ready" to avoid 'play() request interrupted'
-          let waitCount = 0;
-          while (audio.readyState < 2 && waitCount < 20) {
-            await new Promise(r => setTimeout(r, 50));
-            waitCount++;
-          }
-          log(`準備済み音声セット (readyState: ${audio.readyState}, wait: ${waitCount * 50}ms)`);
-        } else {
-          audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-          audio.load();
-        }
-
-        const p = audio.play();
-        if (p !== undefined) {
-          if (data?.audioUrl) {
-            setIsSpeaking(true);
-            setIsGeneratingAudio(false);
-          }
-          p.then(() => {
-            log(data?.audioUrl ? '初期音声再生開始成功' : '無音再生成功');
-            if (!data?.audioUrl && audio.src.startsWith('data:audio/wav')) {
-              audio.pause();
-              audio.currentTime = 0;
-            }
-          }).catch(e => {
-            // "Interrupted by new load" is normal if useEffect triggers fast
-            if (e.name !== 'AbortedError' && e.name !== 'AbortError') {
-              log('再生Promiseエラー: ' + e.message);
-              if (data?.audioUrl) setIsSpeaking(false);
-            }
-          });
-        }
-      } catch (e) {
-        log('アンロック例外: ' + (e as Error).message);
-        setIsSpeaking(false);
-      }
-    }
-    setAudioUnlocked(true);
-    log('オーディオアンロック処理通過');
-
-    if (data) {
-      // Data is already ready - apply immediately
-      initDataRef.current = null; // consume
-      setBootstrap(data.status);
-
-      if (data.message) {
-        const initialMsg: Message = {
-          id: 'initial-' + Date.now(),
-          role: 'assistant',
-          content: data.message,
-          timestamp: new Date(),
-        };
-        setMessages([initialMsg]);
-
-        if (data.message && ttsEnabled && !data.audioUrl) {
-          log('プリフェッチ音声がないため、手動で再生を開始します');
-          playTTS(data.message);
-        }
-      } else {
-        log('初期メッセージがdata.messageにありません');
-      }
-    } else {
-      // Data not ready yet - show chat and wait for background to finish
-      log('データ準備中のままタップ。バックグラウンド完了待ち...');
-      // Ensure the generating indicator is visible if we are still preparing
-      if (isPreparing) {
-        setIsGeneratingAudio(true);
-      }
-    }
-  }, [isLoading, log, isPreparing]);
-
-  // When background prep finishes after user already tapped, apply data
+  // When background prep finishes, apply data
   useEffect(() => {
     if (isReady && !isLoading && initDataRef.current) {
       const data = initDataRef.current;
@@ -498,31 +391,24 @@ export default function Home() {
           timestamp: new Date(m.timestamp || Date.now()),
         }));
         setMessages(restoredMessages);
-      } else if (data.message) {
-        // Fallback to only initial awakening message if no history
-        setMessages([{
-          id: 'initial-' + Date.now(),
-          role: 'assistant' as const,
-          content: data.message,
+      } else {
+        const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
+        const lines = checkinLines && checkinLines.length > 0 ? checkinLines : fallbackLines;
+        const checkinMessage: Message = {
+          id: 'checkin-' + Date.now(),
+          role: 'assistant',
+          content: lines.join('\n'),
           timestamp: new Date(),
-        }]);
-
-        // Play audio if unlocked
-        if (data.audioUrl && audioRef.current && audioUnlocked) {
-          audioRef.current.src = data.audioUrl;
-          audioRef.current.load();
-          setIsSpeaking(true);
-          setIsGeneratingAudio(false);
-          audioRef.current.play()
-            .then(() => log('初期音声再生開始'))
-            .catch(() => setIsSpeaking(false));
-        } else if (data.message && audioUnlocked && ttsEnabled) {
-          log('初期音声の手動再生を試みます...');
-          playTTS(data.message);
-        }
+        };
+        const guideMessage: Message = {
+          id: 'guide-' + Date.now(),
+          role: 'assistant',
+          content: 'マイクを押して、今の気持ちを話してみてください。',
+          timestamp: new Date(),
+        };
+        setMessages([checkinMessage, guideMessage]);
       }
-    } else if (isReady && !isLoading && !initDataRef.current) {
-      // Fallback: Show a friendly message only when prep is done but no data was returned
+    } else if (isReady && !isLoading && !initDataRef.current && initError) {
       log('初期メッセージが取得できなかったため、フォールバックメッセージを表示します');
       setMessages([{
         id: 'error-fallback-' + Date.now(),
@@ -530,9 +416,8 @@ export default function Home() {
         content: '...。......あ、れ......。すまない、今は少し意識が遠のいているみたいだ（通信エラー）。少し時間を置いてからまた話しかけてくれるかい？',
         timestamp: new Date(),
       }]);
-      setInitError('通信に失敗しました。再試行してください。');
     }
-  }, [isReady, isLoading, audioUnlocked, log, ttsEnabled, playTTS]);
+  }, [isReady, isLoading, log, checkinLines, initError]);
 
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
@@ -888,6 +773,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     }
 
     stopTTS();
+    unlockAudio();
     startListening();
   };
 
@@ -920,56 +806,33 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
               animate={{ opacity: 1, scale: 1 }}
               className="flex flex-col items-center gap-8 select-none px-8 max-w-sm"
             >
-              {/* Checkin words */}
+              {/* Loading hint before tap */}
               <AnimatePresence mode="wait">
-                {checkinLines ? (
-                  <motion.div
-                    key="checkin"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.8, ease: 'easeOut' }}
-                    className="flex flex-col items-center gap-2 text-center"
+                <motion.div
+                  key="loading"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col items-center gap-6"
+                >
+                  {/* Simple loading bar or nothing to keep it clean */}
+                  <div className="h-0.5 w-32 bg-white/10 overflow-hidden rounded-full">
+                    {!prefersReducedMotion && (
+                      <motion.div
+                        animate={{ x: [-128, 128] }}
+                        transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                        className="h-full w-full bg-blue-500/50"
+                      />
+                    )}
+                  </div>
+                  <motion.p
+                    animate={prefersReducedMotion ? { opacity: 0.7 } : { opacity: [0.3, 0.7, 0.3] }}
+                    transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                    className="text-white/50 font-light text-sm tracking-[0.2em] mt-4"
                   >
-                    {checkinLines.map((line, i) => (
-                      <p
-                        key={i}
-                        className={
-                          i === checkinLines.length - 1
-                            ? 'text-white/90 font-light text-lg leading-relaxed tracking-wider'
-                            : 'text-white/60 font-light text-base leading-relaxed tracking-wide'
-                        }
-                      >
-                        {line}
-                      </p>
-                    ))}
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="loading"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="flex flex-col items-center gap-6"
-                  >
-                    {/* Simple loading bar or nothing to keep it clean */}
-                    <div className="h-0.5 w-32 bg-white/10 overflow-hidden rounded-full">
-                      {!prefersReducedMotion && (
-                        <motion.div
-                          animate={{ x: [-128, 128] }}
-                          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-                          className="h-full w-full bg-blue-500/50"
-                        />
-                      )}
-                    </div>
-                    <motion.p
-                      animate={prefersReducedMotion ? { opacity: 0.7 } : { opacity: [0.3, 0.7, 0.3] }}
-                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 3, ease: 'easeInOut' }}
-                      className="text-white/50 font-light text-sm tracking-[0.2em] mt-4"
-                    >
-                      準備しています...
-                    </motion.p>
-                  </motion.div>
-                )}
+                    準備しています...
+                  </motion.p>
+                </motion.div>
               </AnimatePresence>
 
               {/* Tap button - delayed after checkin */}
