@@ -108,6 +108,9 @@ export default function Home() {
   const ttsEnabledRef = useRef<boolean>(ttsEnabled);
   const hasHistoryRef = useRef<boolean>(false);
   const touchActiveRef = useRef<boolean>(false);
+  const micLockedRef = useRef<boolean>(false);
+  const micPressStartRef = useRef<number>(0);
+  const ignoreMicUpRef = useRef<boolean>(false);
   // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
 
@@ -769,6 +772,12 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       return;
     }
 
+    if (isListening && micLockedRef.current) {
+      ignoreMicUpRef.current = true;
+      micLockedRef.current = false;
+      stopAndSend();
+      return;
+    }
     if (isListening) return;
 
     // Prioritize microphone: Abort any pending message requests
@@ -781,7 +790,9 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
 
     stopTTS();
     unlockAudio();
+    micPressStartRef.current = Date.now();
     startListening();
+    micLockedRef.current = false;
   };
 
   // Push-to-talk: send on release
@@ -795,6 +806,16 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     }
     log('離した');
     if (!isListening) return;
+    if (micLockedRef.current) return;
+    if (ignoreMicUpRef.current) {
+      ignoreMicUpRef.current = false;
+      return;
+    }
+    const pressDuration = Date.now() - micPressStartRef.current;
+    if (pressDuration < 250) {
+      micLockedRef.current = true;
+      return;
+    }
     stopAndSend();
   };
 
