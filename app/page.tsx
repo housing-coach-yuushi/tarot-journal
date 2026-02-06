@@ -173,16 +173,13 @@ export default function Home() {
     stopAndSend,
     cancel,
   } = useElevenLabsSTT({
-    onFinalResult: (text: string) => {
-      const shouldSend = sendOnFinalRef.current;
-      sendOnFinalRef.current = false;
-      if (!text.trim()) return;
-      if (shouldSend) {
+    onEnd: (text: string) => {
+      if (sendOnFinalRef.current && text.trim()) {
+        sendOnFinalRef.current = false;
         sendMessage(text);
+        return;
       }
-    },
-    onEnd: () => {
-      if (isHoldingMicRef.current && !sendOnFinalRef.current) {
+      if (isHoldingMicRef.current) {
         window.setTimeout(() => startListening(), 150);
       }
     },
