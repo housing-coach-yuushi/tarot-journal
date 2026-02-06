@@ -4,10 +4,11 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 
 interface UseElevenLabsSTTOptions {
     onFinalResult?: (transcript: string) => void;
+    onEnd?: (transcript: string) => void;
 }
 
 export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
-    const { onFinalResult } = options;
+    const { onFinalResult, onEnd } = options;
 
     const [isListening, setIsListening] = useState(false);
     const [currentTranscript, setCurrentTranscript] = useState('');
@@ -16,6 +17,7 @@ export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
 
     const recognitionRef = useRef<any>(null);
     const onFinalResultRef = useRef(onFinalResult);
+    const onEndRef = useRef(onEnd);
     const finalTranscriptRef = useRef('');
     const interimTranscriptRef = useRef('');
     const cancelRef = useRef(false);
@@ -23,6 +25,10 @@ export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
     useEffect(() => {
         onFinalResultRef.current = onFinalResult;
     }, [onFinalResult]);
+
+    useEffect(() => {
+        onEndRef.current = onEnd;
+    }, [onEnd]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -105,6 +111,8 @@ export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
             } else {
                 setDebugStatus('変換失敗 (空)');
             }
+
+            onEndRef.current?.(finalText);
 
             finalTranscriptRef.current = '';
             interimTranscriptRef.current = '';
