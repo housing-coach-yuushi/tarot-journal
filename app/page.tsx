@@ -322,14 +322,6 @@ export default function Home() {
       }
       ttsWsRef.current = null;
     }
-    if (ttsGainRef.current) {
-      try {
-        ttsGainRef.current.disconnect();
-      } catch {
-        // ignore
-      }
-      ttsGainRef.current = null;
-    }
   }, []);
 
   const scheduleTtsChunk = useCallback((ctx: AudioContext, gain: GainNode, chunk: ArrayBuffer, sampleRate: number) => {
@@ -360,10 +352,14 @@ export default function Home() {
     // Recreate if closed or missing
     if (!ttsAudioContextRef.current || ttsAudioContextRef.current.state === 'closed') {
       const ctx = new AudioContextClass();
+      ttsAudioContextRef.current = ctx;
+      ttsGainRef.current = null;
+    }
+    if (!ttsGainRef.current && ttsAudioContextRef.current) {
+      const ctx = ttsAudioContextRef.current;
       const gain = ctx.createGain();
       gain.gain.value = 1;
       gain.connect(ctx.destination);
-      ttsAudioContextRef.current = ctx;
       ttsGainRef.current = gain;
     }
     if (ttsAudioContextRef.current.state === 'suspended') {
