@@ -683,8 +683,7 @@ export default function Home() {
     try {
       const unlocked = await unlockAudio();
       if (!unlocked) {
-        pushNotice('error', '音声の準備に失敗しました。もう一度タップしてください。', 5000);
-        return;
+        pushNotice('info', '音声の準備は続行中です。必要ならマイクを押す前に画面を一度タップしてください。', 5000);
       }
       setIsLoading(false);
       setShowTapHint(false);
@@ -1260,14 +1259,8 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.6 }}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      void handleTapToStart();
-                    }}
-                    onTouchStart={!supportsPointerEvents ? (e) => {
-                      e.preventDefault();
-                      void handleTapToStart();
-                    } : undefined}
+                    onPointerUp={() => void handleTapToStart()}
+                    onTouchEnd={!supportsPointerEvents ? () => void handleTapToStart() : undefined}
                     onClick={() => void handleTapToStart()}
                     aria-label="タップして始める"
                     className="group relative w-full overflow-hidden rounded-full bg-white px-8 py-4 transition-all active:scale-[0.985]"
