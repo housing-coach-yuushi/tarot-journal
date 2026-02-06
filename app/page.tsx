@@ -113,6 +113,8 @@ export default function Home() {
   const isListeningRef = useRef<boolean>(false);
   const micRetryTimerRef = useRef<number | null>(null);
   const heldTranscriptRef = useRef<string>('');
+  const currentTranscriptRef = useRef<string>('');
+  const pendingSendTimerRef = useRef<number | null>(null);
   // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
 
@@ -182,6 +184,10 @@ export default function Home() {
       }
       if (sendOnFinalRef.current) {
         sendOnFinalRef.current = false;
+        if (pendingSendTimerRef.current) {
+          window.clearTimeout(pendingSendTimerRef.current);
+          pendingSendTimerRef.current = null;
+        }
         const toSend = heldTranscriptRef.current;
         heldTranscriptRef.current = '';
         if (toSend.trim()) {
@@ -190,12 +196,19 @@ export default function Home() {
         return;
       }
       if (isHoldingMicRef.current) {
+        window.setTimeout(() => startListening(), 100);
+      }
+    },
+    onError: (errorType: string) => {
+      if (!isHoldingMicRef.current) return;
+      if (errorType === 'no-speech' || errorType === 'aborted' || errorType === 'audio-capture') {
         window.setTimeout(() => startListening(), 150);
       }
     },
   });
 
   useEffect(() => {
+    if (isHoldingMicRef.current) return;
     if (debugStatus === 'マイク許可が必要です') {
       pushNotice('error', 'マイクの許可が必要です。ブラウザ設定を確認してください。', 6000);
     } else if (debugStatus === '変換エラー') {
@@ -212,6 +225,10 @@ export default function Home() {
   useEffect(() => {
     isListeningRef.current = isListening;
   }, [isListening]);
+
+  useEffect(() => {
+    currentTranscriptRef.current = currentTranscript;
+  }, [currentTranscript]);
 
   // Play TTS for a message (Full)
   const playTTS = useCallback(async (text: string) => {
@@ -805,6 +822,10 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     isHoldingMicRef.current = true;
     sendOnFinalRef.current = false;
     heldTranscriptRef.current = '';
+    if (pendingSendTimerRef.current) {
+      window.clearTimeout(pendingSendTimerRef.current);
+      pendingSendTimerRef.current = null;
+    }
     startListening();
     if (micRetryTimerRef.current) {
       window.clearTimeout(micRetryTimerRef.current);
@@ -831,8 +852,12 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       window.clearTimeout(micRetryTimerRef.current);
       micRetryTimerRef.current = null;
     }
+    if (pendingSendTimerRef.current) {
+      window.clearTimeout(pendingSendTimerRef.current);
+      pendingSendTimerRef.current = null;
+    }
     if (!isListening) {
-      const toSend = heldTranscriptRef.current;
+      const toSend = `${heldTranscriptRef.current} ${currentTranscriptRef.current}`.trim();
       heldTranscriptRef.current = '';
       if (toSend.trim()) {
         sendMessage(toSend);
@@ -841,6 +866,15 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     }
     sendOnFinalRef.current = true;
     stopAndSend();
+    pendingSendTimerRef.current = window.setTimeout(() => {
+      if (!sendOnFinalRef.current) return;
+      sendOnFinalRef.current = false;
+      const toSend = `${heldTranscriptRef.current} ${currentTranscriptRef.current}`.trim();
+      heldTranscriptRef.current = '';
+      if (toSend.trim()) {
+        sendMessage(toSend);
+      }
+    }, 1200);
   };
 
   const handleMicCancel = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
@@ -852,6 +886,10 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     if (micRetryTimerRef.current) {
       window.clearTimeout(micRetryTimerRef.current);
       micRetryTimerRef.current = null;
+    }
+    if (pendingSendTimerRef.current) {
+      window.clearTimeout(pendingSendTimerRef.current);
+      pendingSendTimerRef.current = null;
     }
     cancel();
   };

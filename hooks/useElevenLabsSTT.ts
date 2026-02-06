@@ -5,10 +5,11 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 interface UseElevenLabsSTTOptions {
     onFinalResult?: (transcript: string) => void;
     onEnd?: (transcript: string) => void;
+    onError?: (error: string) => void;
 }
 
 export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
-    const { onFinalResult, onEnd } = options;
+    const { onFinalResult, onEnd, onError } = options;
 
     const [isListening, setIsListening] = useState(false);
     const [currentTranscript, setCurrentTranscript] = useState('');
@@ -18,6 +19,7 @@ export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
     const recognitionRef = useRef<any>(null);
     const onFinalResultRef = useRef(onFinalResult);
     const onEndRef = useRef(onEnd);
+    const onErrorRef = useRef(onError);
     const finalTranscriptRef = useRef('');
     const interimTranscriptRef = useRef('');
     const cancelRef = useRef(false);
@@ -29,6 +31,10 @@ export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
     useEffect(() => {
         onEndRef.current = onEnd;
     }, [onEnd]);
+
+    useEffect(() => {
+        onErrorRef.current = onError;
+    }, [onError]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -88,6 +94,7 @@ export function useElevenLabsSTT(options: UseElevenLabsSTTOptions = {}) {
             } else {
                 setDebugStatus('変換エラー');
             }
+            onErrorRef.current?.(errorType);
             setIsListening(false);
         };
 
