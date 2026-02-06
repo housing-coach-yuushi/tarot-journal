@@ -516,6 +516,17 @@ export default function Home() {
         audio.pause();
         audio.currentTime = 0;
       }
+      if (!ttsAudioContextRef.current) {
+        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          const gain = ctx.createGain();
+          gain.gain.value = 1;
+          gain.connect(ctx.destination);
+          ttsAudioContextRef.current = ctx;
+          ttsGainRef.current = gain;
+        }
+      }
       if (ttsAudioContextRef.current && ttsAudioContextRef.current.state === 'suspended') {
         await ttsAudioContextRef.current.resume();
       }
