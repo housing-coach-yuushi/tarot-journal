@@ -117,6 +117,8 @@ export default function Home() {
   const ttsEnabledRef = useRef<boolean>(ttsEnabled);
   const hasHistoryRef = useRef<boolean>(false);
   const checkinTtsPlayedRef = useRef<boolean>(false);
+  const tapToStartBusyRef = useRef<boolean>(false);
+  const wsRetryCountRef = useRef<number>(0);
   const touchActiveRef = useRef<boolean>(false);
   const sendOnFinalRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
@@ -210,6 +212,12 @@ export default function Home() {
 
       // Retry only for transient websocket errors while still holding.
       if (errorType === 'ws') {
+        wsRetryCountRef.current += 1;
+        if (wsRetryCountRef.current > 2) {
+          isHoldingMicRef.current = false;
+          pushNotice('error', '音声認識サーバーに接続できません。ネットワークを確認して再試行してください。', 6000);
+          return;
+        }
         window.setTimeout(() => {
           if (isHoldingMicRef.current) startListening();
         }, 300);
@@ -361,13 +369,18 @@ export default function Home() {
     }
   }, []);
 
-  const unlockAudio = useCallback(async () => {
+  const unlockAudio = useCallback(async (): Promise<boolean> => {
     try {
       // Always try to ensure TTS AudioContext is alive (even if already unlocked)
       await ensureTtsAudioContext();
+      const ctxReady = !!ttsAudioContextRef.current && ttsAudioContextRef.current.state === 'running';
+      if (ctxReady && !audioUnlocked) {
+        setAudioUnlocked(true);
+        log('オーディオアンロック完了');
+      }
 
-      if (audioUnlocked) return;
-      if (!audioRef.current) return;
+      if (audioUnlocked || ctxReady) return true;
+      if (!audioRef.current) return false;
 
       const audio = audioRef.current;
       audio.volume = 1.0;
@@ -381,12 +394,13 @@ export default function Home() {
         audio.currentTime = 0;
       }
       setAudioUnlocked(true);
-      setShowTapHint(false);
       log('オーディオアンロック完了');
+      return true;
     } catch (e) {
       // During non-gesture calls (e.g. async sends), this can fail on iOS.
       // Keep it as debug-only noise instead of a user-facing error.
       console.warn('[audio] unlock failed', e);
+      return false;
     }
   }, [audioUnlocked, log, ensureTtsAudioContext]);
 
@@ -528,14 +542,19 @@ export default function Home() {
     try {
       await playDeepgramTTS(text, currentVersion, selectedVoiceId);
     } catch (error) {
-      log('音声再生失敗: ' + (error as Error).message);
+      const message = (error as Error).message || 'unknown';
+      const shortMessage = message.length > 90 ? `${message.slice(0, 90)}...` : message;
+      log('音声再生失敗: ' + shortMessage);
+      if (message.includes('AudioContext') || message.includes('未初期化')) {
+        pushNotice('error', '音声再生を開始できませんでした。画面を一度タップしてから再試行してください。', 6000);
+      }
       setIsGeneratingAudio(false);
       const fallbackOk = speakWithBrowser(text);
       if (!fallbackOk) {
         setIsSpeaking(false);
       }
     }
-  }, [ttsEnabled, log, playDeepgramTTS, speakWithBrowser, bootstrap.identity?.voiceId]);
+  }, [ttsEnabled, log, playDeepgramTTS, speakWithBrowser, bootstrap.identity?.voiceId, pushNotice]);
 
   // Stop TTS
   const stopTTS = useCallback(() => {
@@ -657,13 +676,20 @@ export default function Home() {
   }, [prepareInBackground]);
 
   const handleTapToStart = useCallback(async () => {
+    if (tapToStartBusyRef.current) return;
+    tapToStartBusyRef.current = true;
     try {
-      await unlockAudio();
-    } finally {
+      const unlocked = await unlockAudio();
+      if (!unlocked) {
+        pushNotice('error', '音声の準備に失敗しました。もう一度タップしてください。', 5000);
+        return;
+      }
       setIsLoading(false);
       setShowTapHint(false);
+    } finally {
+      tapToStartBusyRef.current = false;
     }
-  }, [unlockAudio]);
+  }, [unlockAudio, pushNotice]);
 
   // When background prep finishes, apply data
   useEffect(() => {
@@ -1076,6 +1102,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       return;
     }
     if (isHoldingMicRef.current) return;
+    wsRetryCountRef.current = 0;
     log('押した');
 
     if (!sttSupported) {
@@ -1129,6 +1156,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       return;
     }
     log('離した');
+    wsRetryCountRef.current = 0;
     isHoldingMicRef.current = false;
     if (micRetryTimerRef.current) {
       window.clearTimeout(micRetryTimerRef.current);
@@ -1162,6 +1190,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
   const handleMicCancel = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
     if (!isListening) return;
+    wsRetryCountRef.current = 0;
     sendOnFinalRef.current = false;
     isHoldingMicRef.current = false;
     heldTranscriptRef.current = '';
@@ -1182,10 +1211,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
   const isMessagesTrimmed = messages.length > MAX_RENDER_MESSAGES;
 
   return (
-    <main
-      className="fixed inset-0 bg-black text-white overflow-hidden flex flex-col"
-      onPointerDown={!audioUnlocked ? unlockAudio : undefined}
-    >
+    <main className="fixed inset-0 bg-black text-white overflow-hidden flex flex-col">
       {/* Tap-to-Start Overlay */}
       <AnimatePresence>
         {isLoading && (
@@ -1232,7 +1258,15 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.6 }}
-                    onClick={handleTapToStart}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      void handleTapToStart();
+                    }}
+                    onTouchStart={!supportsPointerEvents ? (e) => {
+                      e.preventDefault();
+                      void handleTapToStart();
+                    } : undefined}
+                    onClick={() => void handleTapToStart()}
                     aria-label="タップして始める"
                     className="group relative w-full overflow-hidden rounded-full bg-white px-8 py-4 transition-all active:scale-[0.985]"
                   >
@@ -1566,7 +1600,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
               <span className="opacity-70 ml-2">State:</span> <span>{debugStatus}</span>
             </div>
             <div className="space-y-0.5">
-              {debugLog.slice(-5).map((msg, i) => <div key={i} className="line-clamp-1">{msg}</div>)}
+              {debugLog.slice(-5).map((msg, i) => <div key={i} className="whitespace-pre-wrap break-words">{msg}</div>)}
             </div>
           </div>
         </div>

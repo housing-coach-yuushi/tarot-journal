@@ -66,6 +66,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   // Buffer PCM chunks while WebSocket is connecting
   const pendingChunksRef = useRef<ArrayBuffer[]>([]);
   const wsReadyRef = useRef(false);
+  const startAttemptRef = useRef(0);
 
   useEffect(() => {
     onEndRef.current = onEnd;
@@ -176,6 +177,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     // Use ref check to avoid stale closure issue with isListening state
     if (wsRef.current || mediaStreamRef.current) return;
 
+    const attemptId = startAttemptRef.current + 1;
+    startAttemptRef.current = attemptId;
     isStartingRef.current = true;
     isFinalizingRef.current = false;
     wsReadyRef.current = false;
@@ -193,6 +196,10 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
         },
       });
 
+      if (attemptId !== startAttemptRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
       mediaStreamRef.current = stream;
       const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioContextClass) {
@@ -202,6 +209,10 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       audioContextRef.current = audioContext;
       if (audioContext.state === 'suspended') {
         await audioContext.resume();
+      }
+      if (attemptId !== startAttemptRef.current) {
+        cleanupAudio();
+        return;
       }
       const source = audioContext.createMediaStreamSource(stream);
       sourceRef.current = source;
@@ -265,6 +276,11 @@ registerProcessor('pcm-sender', PcmSender);
 
       // 3) Token + WebSocket — done in parallel with audio capture
       const token = await getToken();
+      if (attemptId !== startAttemptRef.current) {
+        cleanupAudio();
+        cleanupSocket();
+        return;
+      }
 
       const model = process.env.NEXT_PUBLIC_DEEPGRAM_STT_MODEL || DEFAULT_MODEL;
       const language = process.env.NEXT_PUBLIC_DEEPGRAM_STT_LANGUAGE || DEFAULT_LANGUAGE;
@@ -286,6 +302,7 @@ registerProcessor('pcm-sender', PcmSender);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (attemptId !== startAttemptRef.current) return;
         wsReadyRef.current = true;
         // Flush buffered audio chunks
         const buffered = pendingChunksRef.current;
@@ -298,6 +315,7 @@ registerProcessor('pcm-sender', PcmSender);
       };
 
       ws.onmessage = (event) => {
+        if (attemptId !== startAttemptRef.current) return;
         if (typeof event.data !== 'string') return;
         try {
           const data = JSON.parse(event.data);
@@ -324,14 +342,18 @@ registerProcessor('pcm-sender', PcmSender);
       };
 
       ws.onerror = (event) => {
+        if (attemptId !== startAttemptRef.current) return;
         console.warn('[Deepgram STT] websocket error', event);
         setDebugStatus('接続エラー');
         onErrorRef.current?.('ws');
+        setIsListening(false);
+        cleanupAudio();
+        cleanupSocket();
         isStartingRef.current = false;
-        // Don't tear down isListening here — let onclose handle it
       };
 
       ws.onclose = () => {
+        if (attemptId !== startAttemptRef.current) return;
         wsReadyRef.current = false;
         // Only set not-listening if audio is also stopped
         // (avoids premature stop if WS reconnects)
@@ -344,6 +366,9 @@ registerProcessor('pcm-sender', PcmSender);
         isStartingRef.current = false;
       };
     } catch (error) {
+      if (attemptId !== startAttemptRef.current) {
+        return;
+      }
       let errorCode: SttErrorCode = 'unknown';
       let status = '変換エラー';
       if (error instanceof DOMException) {
@@ -378,6 +403,7 @@ registerProcessor('pcm-sender', PcmSender);
   }, [cleanupAudio, cleanupSocket, finalize, getToken, isSupported, sendPcm]);
 
   const stopAndSend = useCallback(() => {
+    startAttemptRef.current += 1;
     isFinalizingRef.current = true;
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
@@ -401,6 +427,7 @@ registerProcessor('pcm-sender', PcmSender);
   }, [cleanupAudio, cleanupSocket, finalize]);
 
   const cancel = useCallback(() => {
+    startAttemptRef.current += 1;
     isFinalizingRef.current = false;
     resetTranscript();
     cleanupAudio();
