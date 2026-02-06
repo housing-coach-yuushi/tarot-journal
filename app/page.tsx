@@ -260,13 +260,21 @@ export default function Home() {
     log('音声生成開始...');
     setIsGeneratingAudio(true);
     const currentVersion = ++ttsVersionRef.current;
+    const controller = new AbortController();
+    const timeoutId = typeof window !== 'undefined'
+      ? window.setTimeout(() => controller.abort(), 12000)
+      : null;
 
     try {
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({ text }),
       });
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
 
       if (currentVersion !== ttsVersionRef.current) {
         log('TTSリクエストがキャンセルされました(新リクエストあり)');
@@ -312,6 +320,9 @@ export default function Home() {
         setIsGeneratingAudio(false);
       }
     } catch (error) {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
       log('音声再生失敗: ' + (error as Error).message);
       const fallbackOk = speakWithBrowser(text);
       if (!fallbackOk) {
