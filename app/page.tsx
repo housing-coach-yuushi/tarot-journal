@@ -407,6 +407,18 @@ export default function Home() {
     stopDeepgramTTS();
     ttsStartedRef.current = false;
 
+    // Ensure audio output path first; if this fails, opening WS is pointless.
+    await ensureTtsAudioContext();
+    if (!ttsAudioContextRef.current || !ttsGainRef.current) {
+      throw new Error('AudioContext initialization failed — user gesture may be required');
+    }
+    const ctx = ttsAudioContextRef.current;
+    const gain = ttsGainRef.current;
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+    ttsPlayheadRef.current = Math.max(ctx.currentTime, ttsPlayheadRef.current);
+
     const token = await getDeepgramToken();
     const model = voiceIdOverride || process.env.NEXT_PUBLIC_DEEPGRAM_TTS_MODEL || DEFAULT_VOICE_ID;
     const sampleRate = Number(process.env.NEXT_PUBLIC_DEEPGRAM_TTS_SAMPLE_RATE || 24000);
@@ -419,19 +431,19 @@ export default function Home() {
     const ws = new WebSocket(`wss://api.deepgram.com/v1/speak?${params.toString()}`, ['token', token]);
     ws.binaryType = 'arraybuffer';
     ttsWsRef.current = ws;
-
-    // Use pre-created AudioContext from user gesture (ensureTtsAudioContext)
-    // Recreate only if closed or missing
-    await ensureTtsAudioContext();
-    if (!ttsAudioContextRef.current || !ttsGainRef.current) {
-      throw new Error('AudioContext initialization failed — user gesture may be required');
-    }
-    const ctx = ttsAudioContextRef.current;
-    const gain = ttsGainRef.current;
-    if (ctx.state === 'suspended') {
-      await ctx.resume();
-    }
-    ttsPlayheadRef.current = Math.max(ctx.currentTime, ttsPlayheadRef.current);
+    let wsFailed = false;
+    const failDeepgramTts = (reason: string) => {
+      if (version !== ttsVersionRef.current) return;
+      if (wsFailed) return;
+      wsFailed = true;
+      log(`Deepgram TTS error: ${reason}`);
+      stopDeepgramTTS();
+      setIsGeneratingAudio(false);
+      const fallbackOk = speakWithBrowser(text);
+      if (!fallbackOk) {
+        setIsSpeaking(false);
+      }
+    };
 
     const finalizePlayback = () => {
       if (version !== ttsVersionRef.current) return;
@@ -447,8 +459,9 @@ export default function Home() {
       try {
         ws.send(JSON.stringify({ type: 'Speak', text }));
         ws.send(JSON.stringify({ type: 'Flush' }));
-      } catch {
-        // ignore
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'send failed';
+        failDeepgramTts(message);
       }
     };
 
@@ -456,9 +469,10 @@ export default function Home() {
       if (version !== ttsVersionRef.current) return;
       if (typeof event.data === 'string') {
         try {
-          const msg = JSON.parse(event.data);
+          const msg = JSON.parse(event.data) as { type?: string; message?: string };
           if (msg.type === 'Error') {
-            throw new Error(msg.message || 'Deepgram TTS error');
+            failDeepgramTts(msg.message || 'unknown');
+            return;
           }
         } catch {
           // ignore non-audio messages
@@ -477,23 +491,19 @@ export default function Home() {
     };
 
     ws.onerror = () => {
-      if (version !== ttsVersionRef.current) return;
-      log('Deepgram TTS error');
-      stopDeepgramTTS();
-      setIsGeneratingAudio(false);
-      const fallbackOk = speakWithBrowser(text);
-      if (!fallbackOk) {
-        setIsSpeaking(false);
-      }
+      failDeepgramTts('websocket error');
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (ttsStartTimerRef.current) {
         window.clearTimeout(ttsStartTimerRef.current);
         ttsStartTimerRef.current = null;
       }
       if (version !== ttsVersionRef.current) return;
+      if (wsFailed) return;
       if (!ttsStartedRef.current) {
+        // Useful for identifying auth/model mismatches from browser logs.
+        log(`Deepgram TTS close before audio: code=${event.code} reason=${event.reason || 'n/a'}`);
         setIsGeneratingAudio(false);
         const fallbackOk = speakWithBrowser(text);
         if (!fallbackOk) {
