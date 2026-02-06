@@ -72,7 +72,7 @@ export default function Home() {
   const supportsPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window;
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isReady, setIsReady] = useState(false);  // バックグラウンド準備完了
   const [isSending, setIsSending] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);  // TTS準備中
@@ -95,7 +95,7 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [checkinLines, setCheckinLines] = useState<string[] | null>(null);
-  const [showTapHint, setShowTapHint] = useState(false);
+  const [showTapHint, setShowTapHint] = useState(true);
   const [showRadio, setShowRadio] = useState(false);
   const [radioNotification, setRadioNotification] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -168,14 +168,6 @@ export default function Home() {
   useEffect(() => {
     setUserId(getUserId());
   }, []);
-
-  // Fallback: always allow tap after a short delay even if checkin fails
-  useEffect(() => {
-    if (!isLoading) return;
-    const timer = setTimeout(() => setShowTapHint(true), 6000);
-    return () => clearTimeout(timer);
-  }, [isLoading]);
-
 
   // Speech recognition hook - Deepgram Streaming
   const {
@@ -367,9 +359,12 @@ export default function Home() {
         audio.currentTime = 0;
       }
       setAudioUnlocked(true);
+      setShowTapHint(false);
       log('オーディオアンロック完了');
     } catch (e) {
-      log('オーディオアンロック失敗: ' + (e as Error).message);
+      // During non-gesture calls (e.g. async sends), this can fail on iOS.
+      // Keep it as debug-only noise instead of a user-facing error.
+      console.warn('[audio] unlock failed', e);
     }
   }, [audioUnlocked, log, ensureTtsAudioContext]);
 
@@ -522,7 +517,17 @@ export default function Home() {
 
   // Stop TTS
   const stopTTS = useCallback(() => {
-    log('音声停止');
+    const speechSynthesisActive = typeof window !== 'undefined'
+      && 'speechSynthesis' in window
+      && (window.speechSynthesis.speaking || window.speechSynthesis.pending);
+    const hasActivePlayback = isSpeaking
+      || isGeneratingAudio
+      || ttsSourcesRef.current.length > 0
+      || !!ttsWsRef.current
+      || speechSynthesisActive;
+    if (hasActivePlayback) {
+      log('音声停止');
+    }
     ttsVersionRef.current++; // Invalidate any pending TTS fetches
     stopDeepgramTTS();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -538,7 +543,7 @@ export default function Home() {
     }
     setIsSpeaking(false);
     setIsGeneratingAudio(false);
-  }, [log, stopDeepgramTTS]);
+  }, [isGeneratingAudio, isSpeaking, log, stopDeepgramTTS]);
 
 
   // Ref to hold pre-fetched initial data for tap-to-start
@@ -627,10 +632,14 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prepareInBackground]);
 
-  // Tap-to-start is no longer used; keep as no-op for safety
   const handleTapToStart = useCallback(async () => {
-    return;
-  }, []);
+    try {
+      await unlockAudio();
+    } finally {
+      setIsLoading(false);
+      setShowTapHint(false);
+    }
+  }, [unlockAudio]);
 
   // When background prep finishes, apply data
   useEffect(() => {
@@ -1024,6 +1033,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     if ('pointerType' in e && e.pointerType === 'mouse' && touchActiveRef.current) {
       return;
     }
+    if (isHoldingMicRef.current) return;
     log('押した');
 
     if (!sttSupported) {
@@ -1132,8 +1142,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
   return (
     <main
       className="fixed inset-0 bg-black text-white overflow-hidden flex flex-col"
-      onPointerDown={unlockAudio}
-      onTouchStart={unlockAudio}
+      onPointerDown={!audioUnlocked ? unlockAudio : undefined}
     >
       {/* Tap-to-Start Overlay */}
       <AnimatePresence>
@@ -1141,62 +1150,56 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
           <motion.div
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="fixed inset-0 bg-black z-[100] flex items-center justify-center"
+            transition={{ duration: 0.45 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[linear-gradient(160deg,#090b0e_0%,#12161e_55%,#080a0d_100%)]"
+            style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif' }}
           >
+            <div className="pointer-events-none absolute inset-0">
+              <motion.div
+                animate={prefersReducedMotion ? undefined : { x: [0, 20, 0], y: [0, -12, 0] }}
+                transition={prefersReducedMotion ? undefined : { duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+                className="absolute -top-16 -left-10 h-64 w-64 rounded-full bg-white/20 blur-3xl"
+              />
+              <motion.div
+                animate={prefersReducedMotion ? undefined : { x: [0, -18, 0], y: [0, 14, 0] }}
+                transition={prefersReducedMotion ? undefined : { duration: 10, repeat: Infinity, ease: 'easeInOut' }}
+                className="absolute -bottom-16 -right-12 h-72 w-72 rounded-full bg-slate-200/15 blur-3xl"
+              />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(255,255,255,0.18),transparent_38%),radial-gradient(circle_at_80%_100%,rgba(151,181,255,0.16),transparent_42%)]" />
+            </div>
             <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center gap-8 select-none px-8 max-w-sm"
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              className="relative mx-6 w-full max-w-md rounded-[32px] border border-white/30 bg-white/10 px-8 py-10 backdrop-blur-2xl shadow-[0_24px_90px_rgba(0,0,0,0.5)]"
             >
-              {/* Loading hint before tap */}
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key="loading"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="flex flex-col items-center gap-6"
-                >
-                  {/* Simple loading bar or nothing to keep it clean */}
-                  <div className="h-0.5 w-32 bg-white/10 overflow-hidden rounded-full">
-                    {!prefersReducedMotion && (
-                      <motion.div
-                        animate={{ x: [-128, 128] }}
-                        transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-                        className="h-full w-full bg-blue-500/50"
-                      />
-                    )}
-                  </div>
-                  <motion.p
-                    animate={prefersReducedMotion ? { opacity: 0.7 } : { opacity: [0.3, 0.7, 0.3] }}
-                    transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 3, ease: 'easeInOut' }}
-                    className="text-white/50 font-light text-sm tracking-[0.2em] mt-4"
-                  >
-                    準備しています...
-                  </motion.p>
-                </motion.div>
-              </AnimatePresence>
+              <div className="mx-auto mb-7 h-1.5 w-14 rounded-full bg-white/45" />
+              <div className="mb-7 text-center">
+                <p className="text-[11px] tracking-[0.22em] text-white/65">GEORGE TAROT JOURNAL</p>
+                <h1 className="mt-4 text-2xl font-semibold tracking-[0.04em] text-white">
+                  声で、心をひらく
+                </h1>
+                <p className="mt-3 text-sm leading-relaxed text-white/70">
+                  最初のタップで音声再生を有効化します。
+                </p>
+              </div>
 
-              {/* Tap button - delayed after checkin */}
+              {/* Tap-to-start primary action */}
               <AnimatePresence>
                 {showTapHint && (
                   <motion.button
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    transition={{ duration: 0.8 }}
+                    transition={{ duration: 0.6 }}
                     onClick={handleTapToStart}
-                    onTouchEnd={(e) => {
-                      e.preventDefault();
-                      handleTapToStart();
-                    }}
-                    aria-label="タップして開始"
-                    className="px-8 py-3 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 cursor-pointer active:bg-white/20 transition-colors"
+                    aria-label="タップして始める"
+                    className="group relative w-full overflow-hidden rounded-full bg-white px-8 py-4 transition-all active:scale-[0.985]"
                   >
+                    <span className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.95),rgba(242,246,255,0.9))]" />
+                    <span className="pointer-events-none absolute inset-x-5 top-0 h-[1px] bg-white/90" />
                     <motion.p
-                      animate={{ opacity: [0.5, 1, 0.5] }}
-                      transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
-                      className="text-white/70 font-light tracking-widest text-sm"
+                      animate={prefersReducedMotion ? undefined : { opacity: [0.85, 1, 0.85] }}
+                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}
+                      className="relative text-base font-semibold tracking-[0.08em] text-slate-900"
                     >
                       タップして始める
                     </motion.p>
@@ -1211,11 +1214,15 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.6 }}
                   onClick={() => prepareInBackground()}
-                  className="px-6 py-2 rounded-full bg-white/5 border border-white/20 text-white/70 text-sm hover:bg-white/10 transition-colors"
+                  className="mt-4 w-full rounded-full border border-white/25 bg-white/10 px-6 py-3 text-sm text-white/80 transition-colors hover:bg-white/15"
                 >
                   もう一度試す
                 </motion.button>
               )}
+
+              <p className="mt-5 text-center text-[11px] tracking-[0.12em] text-white/55">
+                AUDIO READY
+              </p>
             </motion.div>
           </motion.div>
         )}
@@ -1640,8 +1647,8 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
                 onPointerDown={handleMicDown}
                 onPointerUp={handleMicUp}
                 onPointerCancel={handleMicCancel}
-                onTouchStart={handleMicDown}
-                onTouchEnd={handleMicUp}
+                onTouchStart={!supportsPointerEvents ? handleMicDown : undefined}
+                onTouchEnd={!supportsPointerEvents ? handleMicUp : undefined}
                 onMouseDown={!supportsPointerEvents ? handleMicDown : undefined}
                 onMouseUp={!supportsPointerEvents ? handleMicUp : undefined}
                 whileTap={{ scale: 0.95 }}
