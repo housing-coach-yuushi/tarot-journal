@@ -8,7 +8,7 @@ import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
 import { useDeepgramStreamingSTT } from '@/hooks/useDeepgramStreamingSTT';
 import { TarotCard, DrawnCard, drawRandomCard } from '@/lib/tarot/cards';
-import { DEFAULT_VOICE_ID } from '@/lib/tts/voices';
+import { DEFAULT_VOICE_ID, getVoiceById } from '@/lib/tts/voices';
 import { Radio } from 'lucide-react';
 
 const TarotCardReveal = dynamic(() => import('@/components/TarotCardReveal').then(m => m.TarotCardReveal), {
@@ -468,7 +468,8 @@ export default function Home() {
     log('音声生成開始...');
     setIsGeneratingAudio(true);
     const currentVersion = ++ttsVersionRef.current;
-    const selectedVoiceId = bootstrap.identity?.voiceId || DEFAULT_VOICE_ID;
+    const rawVoiceId = bootstrap.identity?.voiceId;
+    const selectedVoiceId = rawVoiceId && getVoiceById(rawVoiceId) ? rawVoiceId : DEFAULT_VOICE_ID;
 
     try {
       await playDeepgramTTS(text, currentVersion, selectedVoiceId);
@@ -1124,7 +1125,11 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
   const isMessagesTrimmed = messages.length > MAX_RENDER_MESSAGES;
 
   return (
-    <main className="fixed inset-0 bg-black text-white overflow-hidden flex flex-col">
+    <main
+      className="fixed inset-0 bg-black text-white overflow-hidden flex flex-col"
+      onPointerDown={unlockAudio}
+      onTouchStart={unlockAudio}
+    >
       {/* Tap-to-Start Overlay */}
       <AnimatePresence>
         {isLoading && (

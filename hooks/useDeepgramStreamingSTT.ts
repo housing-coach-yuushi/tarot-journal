@@ -177,6 +177,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       processor.connect(gain);
       gain.connect(audioContext.destination);
 
+      setIsListening(true);
       setDebugStatus('接続中');
 
       const token = await getToken();
@@ -200,7 +201,6 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       wsRef.current = ws;
 
       ws.onopen = () => {
-        setIsListening(true);
         setDebugStatus('録音中 (Deepgram)');
         isStartingRef.current = false;
       };
@@ -218,7 +218,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
             interimTranscriptRef.current = '';
             setCurrentTranscript(finalTranscriptRef.current);
 
-            if (data.speech_final || data.from_finalize || isFinalizingRef.current) {
+            // Only finalize when user explicitly released the mic
+            if (isFinalizingRef.current && (data.speech_final || data.from_finalize)) {
               finalize();
             }
           } else {
@@ -250,6 +251,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       console.warn('[Deepgram STT] start error', error);
       onErrorRef.current?.('token');
       setDebugStatus('変換エラー');
+      setIsListening(false);
       isStartingRef.current = false;
       cleanupAudio();
       cleanupSocket();
