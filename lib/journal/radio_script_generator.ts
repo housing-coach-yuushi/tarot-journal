@@ -15,12 +15,12 @@ export const RADIO_PERSONALITIES: Record<string, RadioSpeaker> = {
     George: {
         name: 'George',
         description: '深夜の隠合メンバー制バー「George\'s Bar」のマスター。落ち着いた低音で、洞察力に満ちた渋い男性。',
-        voiceId: 'JBFqnCBvURuLQ7tpZoro', // George
+        voiceId: 'aura-2-fujin-ja',
     },
     Aria: {
         name: 'Aria',
         description: '明るく知的なラジオDJ。ジョージのバーの常連で、視聴者の視点を代弁する。エネルギッシュで聞き上手な女性。',
-        voiceId: '9BWts74D2G803CHClfkM', // Aria
+        voiceId: 'aura-2-izanami-ja',
     }
 };
 

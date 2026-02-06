@@ -29,7 +29,7 @@ export interface AIIdentity {
     personality: string;
     speakingStyle: string;
     emoji: string;
-    voiceId?: string;  // ElevenLabs voice ID
+    voiceId?: string;  // TTS voice model ID
     showDebug?: boolean; // Whether to show debug logs in UI
     bgmEnabled?: boolean; // Whether to play background music
     createdAt: string;

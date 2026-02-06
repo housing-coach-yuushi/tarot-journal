@@ -6,8 +6,9 @@ import dynamic from 'next/dynamic';
 import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings, Share2 } from 'lucide-react';
 import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
-import { useElevenLabsSTT } from '@/hooks/useElevenLabsSTT';
+import { useDeepgramStreamingSTT } from '@/hooks/useDeepgramStreamingSTT';
 import { TarotCard, DrawnCard, drawRandomCard } from '@/lib/tarot/cards';
+import { DEFAULT_VOICE_ID } from '@/lib/tts/voices';
 import { Radio } from 'lucide-react';
 
 const TarotCardReveal = dynamic(() => import('@/components/TarotCardReveal').then(m => m.TarotCardReveal), {
@@ -101,6 +102,13 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const ttsWsRef = useRef<WebSocket | null>(null);
+  const ttsAudioContextRef = useRef<AudioContext | null>(null);
+  const ttsGainRef = useRef<GainNode | null>(null);
+  const ttsPlayheadRef = useRef<number>(0);
+  const ttsSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const ttsStartTimerRef = useRef<number | null>(null);
+  const ttsStartedRef = useRef<boolean>(false);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
   const [isShuffleOpen, setIsShuffleOpen] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -169,7 +177,7 @@ export default function Home() {
   }, [isLoading]);
 
 
-  // Speech recognition hook - ElevenLabs Scribe v2
+  // Speech recognition hook - Deepgram Streaming
   const {
     isListening,
     currentTranscript,
@@ -178,7 +186,7 @@ export default function Home() {
     startListening,
     stopAndSend,
     cancel,
-  } = useElevenLabsSTT({
+  } = useDeepgramStreamingSTT({
     onEnd: (text: string) => {
       if (text.trim()) {
         heldTranscriptRef.current = `${heldTranscriptRef.current} ${text}`.trim();
@@ -250,92 +258,235 @@ export default function Home() {
     }
   }, []);
 
-  // Play TTS for a message (Full)
+  const getDeepgramToken = useCallback(async () => {
+    const res = await fetch('/api/deepgram/token');
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(text || 'Deepgram token error');
+    }
+    const data = await res.json();
+    if (!data?.access_token) {
+      throw new Error('Deepgram token missing');
+    }
+    return data.access_token as string;
+  }, []);
+
+  const stopDeepgramTTS = useCallback(() => {
+    if (ttsStartTimerRef.current) {
+      window.clearTimeout(ttsStartTimerRef.current);
+      ttsStartTimerRef.current = null;
+    }
+    ttsStartedRef.current = false;
+    ttsPlayheadRef.current = 0;
+    ttsSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch {
+        // ignore
+      }
+    });
+    ttsSourcesRef.current = [];
+    if (ttsWsRef.current) {
+      try {
+        ttsWsRef.current.close();
+      } catch {
+        // ignore
+      }
+      ttsWsRef.current = null;
+    }
+    if (ttsGainRef.current) {
+      try {
+        ttsGainRef.current.disconnect();
+      } catch {
+        // ignore
+      }
+      ttsGainRef.current = null;
+    }
+  }, []);
+
+  const scheduleTtsChunk = useCallback((ctx: AudioContext, gain: GainNode, chunk: ArrayBuffer, sampleRate: number) => {
+    const int16 = new Int16Array(chunk);
+    const float32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i += 1) {
+      float32[i] = int16[i] / 0x8000;
+    }
+    const audioBuffer = ctx.createBuffer(1, float32.length, sampleRate);
+    audioBuffer.copyToChannel(float32, 0);
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(gain);
+    const startAt = Math.max(ctx.currentTime + 0.02, ttsPlayheadRef.current);
+    source.start(startAt);
+    ttsPlayheadRef.current = startAt + audioBuffer.duration;
+    ttsSourcesRef.current.push(source);
+    source.onended = () => {
+      const idx = ttsSourcesRef.current.indexOf(source);
+      if (idx >= 0) ttsSourcesRef.current.splice(idx, 1);
+    };
+  }, []);
+
+  const playDeepgramTTS = useCallback(async (text: string, version: number, voiceIdOverride?: string) => {
+    if (typeof window === 'undefined') return false;
+    stopDeepgramTTS();
+    ttsStartedRef.current = false;
+
+    const token = await getDeepgramToken();
+    const model = voiceIdOverride || process.env.NEXT_PUBLIC_DEEPGRAM_TTS_MODEL || DEFAULT_VOICE_ID;
+    const sampleRate = Number(process.env.NEXT_PUBLIC_DEEPGRAM_TTS_SAMPLE_RATE || 24000);
+    const params = new URLSearchParams({
+      model,
+      encoding: 'linear16',
+      sample_rate: String(Number.isFinite(sampleRate) ? sampleRate : 24000),
+    });
+
+    const ws = new WebSocket(`wss://api.deepgram.com/v1/speak?${params.toString()}`, ['token', token]);
+    ws.binaryType = 'arraybuffer';
+    ttsWsRef.current = ws;
+
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) {
+      throw new Error('AudioContext not supported');
+    }
+    if (!ttsAudioContextRef.current) {
+      const ctx = new AudioContextClass({ sampleRate: Number.isFinite(sampleRate) ? sampleRate : undefined });
+      ttsAudioContextRef.current = ctx;
+    }
+    if (ttsAudioContextRef.current && !ttsGainRef.current) {
+      const gain = ttsAudioContextRef.current.createGain();
+      gain.gain.value = 1;
+      gain.connect(ttsAudioContextRef.current.destination);
+      ttsGainRef.current = gain;
+    }
+    const ctx = ttsAudioContextRef.current;
+    const gain = ttsGainRef.current;
+    if (!ctx || !gain) {
+      throw new Error('AudioContext initialization failed');
+    }
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+    ttsPlayheadRef.current = Math.max(ctx.currentTime, ttsPlayheadRef.current);
+
+    const finalizePlayback = () => {
+      if (version !== ttsVersionRef.current) return;
+      const remaining = Math.max(0, ttsPlayheadRef.current - ctx.currentTime);
+      window.setTimeout(() => {
+        if (version !== ttsVersionRef.current) return;
+        setIsSpeaking(false);
+        setIsGeneratingAudio(false);
+      }, Math.ceil(remaining * 1000) + 120);
+    };
+
+    ws.onopen = () => {
+      try {
+        ws.send(JSON.stringify({ type: 'Speak', text }));
+        ws.send(JSON.stringify({ type: 'Flush' }));
+      } catch {
+        // ignore
+      }
+    };
+
+    ws.onmessage = (event) => {
+      if (version !== ttsVersionRef.current) return;
+      if (typeof event.data === 'string') {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'Error') {
+            throw new Error(msg.message || 'Deepgram TTS error');
+          }
+        } catch {
+          // ignore non-audio messages
+        }
+        return;
+      }
+
+      const buffer = event.data as ArrayBuffer;
+      if (!buffer || buffer.byteLength === 0) return;
+      if (!ttsStartedRef.current) {
+        ttsStartedRef.current = true;
+        setIsSpeaking(true);
+        setIsGeneratingAudio(false);
+      }
+      scheduleTtsChunk(ctx, gain, buffer, Number.isFinite(sampleRate) ? sampleRate : 24000);
+    };
+
+    ws.onerror = () => {
+      if (version !== ttsVersionRef.current) return;
+      log('Deepgram TTS error');
+      stopDeepgramTTS();
+      setIsGeneratingAudio(false);
+      const fallbackOk = speakWithBrowser(text);
+      if (!fallbackOk) {
+        setIsSpeaking(false);
+      }
+    };
+
+    ws.onclose = () => {
+      if (ttsStartTimerRef.current) {
+        window.clearTimeout(ttsStartTimerRef.current);
+        ttsStartTimerRef.current = null;
+      }
+      if (version !== ttsVersionRef.current) return;
+      if (!ttsStartedRef.current) {
+        setIsGeneratingAudio(false);
+        const fallbackOk = speakWithBrowser(text);
+        if (!fallbackOk) {
+          setIsSpeaking(false);
+        }
+        return;
+      }
+      finalizePlayback();
+    };
+
+    ttsStartTimerRef.current = window.setTimeout(() => {
+      if (version !== ttsVersionRef.current) return;
+      if (!ttsStartedRef.current) {
+        log('Deepgram TTS timeout');
+        try {
+          ws.close();
+        } catch {
+          // ignore
+        }
+        setIsGeneratingAudio(false);
+        const fallbackOk = speakWithBrowser(text);
+        if (!fallbackOk) {
+          setIsSpeaking(false);
+        }
+      }
+    }, 8000);
+
+    return true;
+  }, [getDeepgramToken, log, scheduleTtsChunk, speakWithBrowser, stopDeepgramTTS]);
+
+  // Play TTS for a message (Deepgram streaming)
   const playTTS = useCallback(async (text: string) => {
-    if (!ttsEnabled || !audioRef.current) {
-      log('TTS無効またはAudioがありません');
+    if (!ttsEnabled) {
+      log('TTS無効');
       return;
     }
 
     log('音声生成開始...');
     setIsGeneratingAudio(true);
     const currentVersion = ++ttsVersionRef.current;
-    const controller = new AbortController();
-    const timeoutId = typeof window !== 'undefined'
-      ? window.setTimeout(() => controller.abort(), 12000)
-      : null;
+    const selectedVoiceId = bootstrap.identity?.voiceId || DEFAULT_VOICE_ID;
 
     try {
-      const response = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({ text }),
-      });
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-
-      if (currentVersion !== ttsVersionRef.current) {
-        log('TTSリクエストがキャンセルされました(新リクエストあり)');
-        return;
-      }
-
-      if (response.ok) {
-        const audioBlob = await response.blob();
-        if (currentVersion !== ttsVersionRef.current) return;
-
-        if (audioBlob.size > 0) {
-          log(`音声受信: ${audioBlob.size} bytes`);
-          const url = URL.createObjectURL(audioBlob);
-          if (audioRef.current) {
-            if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
-              URL.revokeObjectURL(audioRef.current.src);
-            }
-            audioRef.current.src = url;
-            audioRef.current.load();
-            setIsSpeaking(true);
-            setIsGeneratingAudio(false);
-            try {
-              await audioRef.current.play();
-              log('音声再生開始');
-            } catch (err) {
-              setIsSpeaking(false);
-              const fallbackOk = speakWithBrowser(text);
-              if (!fallbackOk) {
-                log('音声再生失敗: ' + (err as Error).message);
-              }
-            }
-          }
-        } else {
-          setIsGeneratingAudio(false);
-        }
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        log('TTSエラー: ' + (errorData.details || errorData.error || response.status));
-        const fallbackOk = speakWithBrowser(text);
-        if (!fallbackOk) {
-          setIsSpeaking(false);
-        }
-        setIsGeneratingAudio(false);
-      }
+      await playDeepgramTTS(text, currentVersion, selectedVoiceId);
     } catch (error) {
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
       log('音声再生失敗: ' + (error as Error).message);
+      setIsGeneratingAudio(false);
       const fallbackOk = speakWithBrowser(text);
       if (!fallbackOk) {
         setIsSpeaking(false);
       }
-      setIsGeneratingAudio(false);
     }
-  }, [ttsEnabled, log, speakWithBrowser]);
+  }, [ttsEnabled, log, playDeepgramTTS, speakWithBrowser, bootstrap.identity?.voiceId]);
 
   // Stop TTS
   const stopTTS = useCallback(() => {
     log('音声停止');
     ttsVersionRef.current++; // Invalidate any pending TTS fetches
+    stopDeepgramTTS();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -349,7 +500,7 @@ export default function Home() {
     }
     setIsSpeaking(false);
     setIsGeneratingAudio(false);
-  }, [log]);
+  }, [log, stopDeepgramTTS]);
 
   const unlockAudio = useCallback(async () => {
     if (audioUnlocked || !audioRef.current) return;
@@ -364,6 +515,9 @@ export default function Home() {
         await p;
         audio.pause();
         audio.currentTime = 0;
+      }
+      if (ttsAudioContextRef.current && ttsAudioContextRef.current.state === 'suspended') {
+        await ttsAudioContextRef.current.resume();
       }
       setAudioUnlocked(true);
       log('オーディオアンロック完了');

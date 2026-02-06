@@ -1,96 +1,64 @@
 /**
- * Available TTS voices from ElevenLabs via Kie.ai (Turbo 2.5 compatible)
+ * Available TTS voices from Deepgram Aura-2 (Japanese)
  */
 
 export interface VoiceOption {
     id: string;
-    name: string; // API name (English)
+    name: string; // API model name
     label: string; // UI name (Japanese)
     gender: 'male' | 'female' | 'neutral';
     description: string;
     age: 'young' | 'middle' | 'mature';
 }
 
-// Turbo 2.5 compatible voices (standard ElevenLabs voices)
+// Deepgram Aura-2 Japanese voices
 export const JAPANESE_VOICES: VoiceOption[] = [
     // Male voices
     {
-        id: 'JBFqnCBvURuLQ7tpZoro',
-        name: 'George',
-        label: 'ジョージ',
+        id: 'aura-2-fujin-ja',
+        name: 'fujin',
+        label: 'フウジン',
         gender: 'male',
-        description: '温かみのある男性声',
+        description: '落ち着いた自信のある男性声',
         age: 'middle',
     },
     {
-        id: 'onw79q6M99uN7H3YqYy4',
-        name: 'Daniel',
-        label: 'ダニエル',
+        id: 'aura-2-ebisu-ja',
+        name: 'ebisu',
+        label: 'エビス',
         gender: 'male',
-        description: '落ち着いた男性声',
-        age: 'middle',
-    },
-    {
-        id: 'IKne3meq5pSbhcnEsnGe',
-        name: 'Charlie',
-        label: 'チャーリー',
-        gender: 'male',
-        description: 'カジュアルな男性声',
-        age: 'young',
-    },
-    {
-        id: 'N2lVS1wzLe9qybdD6Gaj',
-        name: 'Callum',
-        label: 'カラム',
-        gender: 'male',
-        description: '穏やかな男性声',
-        age: 'young',
-    },
-    {
-        id: 'TX380097OofM4HREp3y3',
-        name: 'Liam',
-        label: 'リアム',
-        gender: 'male',
-        description: '若い男性声',
+        description: '深みのある穏やかな男性声',
         age: 'young',
     },
     // Female voices
     {
-        id: '9BWts74D2G803CHClfkM',
-        name: 'Aria',
-        label: 'アリア',
+        id: 'aura-2-izanami-ja',
+        name: 'izanami',
+        label: 'イザナミ',
         gender: 'female',
-        description: '表現力豊かな女性声',
-        age: 'young',
-    },
-    {
-        id: 'EXAVVmYWIigS90r0O5qH',
-        name: 'Sarah',
-        label: 'サラ',
-        gender: 'female',
-        description: '柔らかい女性声',
-        age: 'young',
-    },
-    {
-        id: 'cgSfsWEy7lMDi95EuSjn',
-        name: 'Charlotte',
-        label: 'シャーロット',
-        gender: 'female',
-        description: '落ち着いた女性声',
+        description: '明瞭で丁寧な女性声',
         age: 'middle',
     },
     {
-        id: 'pFZP5JQG7iQjIQuC4Bku',
-        name: 'Lily',
-        label: 'リリー',
+        id: 'aura-2-uzume-ja',
+        name: 'uzume',
+        label: 'ウズメ',
         gender: 'female',
-        description: '明るい女性声',
+        description: '親しみやすく明るい女性声',
         age: 'young',
+    },
+    {
+        id: 'aura-2-ama-ja',
+        name: 'ama',
+        label: 'アマ',
+        gender: 'female',
+        description: '自然体で安心感のある女性声',
+        age: 'middle',
     },
 ];
 
-// Default voice (Daniel is often preferred for Japanese quality in Turbo 2.5)
-export const DEFAULT_VOICE_ID = 'onw79q6M99uN7H3YqYy4';
+// Default voice (Deepgram Aura-2 Japanese)
+export const DEFAULT_VOICE_ID = 'aura-2-izanami-ja';
 
 /**
  * Get voice by ID
@@ -119,9 +87,34 @@ export function getVoiceListForPrompt(): string {
  * Get voice ID by name (case-insensitive)
  */
 export function getVoiceIdByName(name: string): string | undefined {
+    const normalized = name.toLowerCase();
     const voice = JAPANESE_VOICES.find(v =>
-        v.name.toLowerCase() === name.toLowerCase() ||
-        v.label.toLowerCase() === name.toLowerCase()
+        v.name.toLowerCase() === normalized ||
+        v.label.toLowerCase() === normalized ||
+        v.id.toLowerCase() === normalized
     );
-    return voice?.id;
+    if (voice) return voice.id;
+
+    const legacyMap: Record<string, string> = {
+        george: 'aura-2-fujin-ja',
+        'ジョージ': 'aura-2-fujin-ja',
+        daniel: 'aura-2-fujin-ja',
+        'ダニエル': 'aura-2-fujin-ja',
+        charlie: 'aura-2-ebisu-ja',
+        'チャーリー': 'aura-2-ebisu-ja',
+        callum: 'aura-2-ebisu-ja',
+        'カラム': 'aura-2-ebisu-ja',
+        liam: 'aura-2-ebisu-ja',
+        'リアム': 'aura-2-ebisu-ja',
+        aria: 'aura-2-izanami-ja',
+        'アリア': 'aura-2-izanami-ja',
+        sarah: 'aura-2-ama-ja',
+        'サラ': 'aura-2-ama-ja',
+        charlotte: 'aura-2-izanami-ja',
+        'シャーロット': 'aura-2-izanami-ja',
+        lily: 'aura-2-uzume-ja',
+        'リリー': 'aura-2-uzume-ja',
+    };
+
+    return legacyMap[normalized] || legacyMap[name];
 }
