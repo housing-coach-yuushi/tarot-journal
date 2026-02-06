@@ -1619,7 +1619,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
                 whileTap={{ scale: 0.95 }}
                 disabled={!sttSupported}
                 aria-label="マイクを押して話す"
-                className={`p-5 sm:p-6 rounded-full transition-all select-none relative z-10 ${isListening
+                className={`p-5 sm:p-6 rounded-full transition-all select-none relative z-10 touch-none ${isListening
                   ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-500/40'
                   : 'bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10'
                   } ${!sttSupported ? 'opacity-50 cursor-not-allowed' : ''}`}

@@ -49,6 +49,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const finalTranscriptRef = useRef('');
   const interimTranscriptRef = useRef('');
   const isFinalizingRef = useRef(false);
+  const isStartingRef = useRef(false);
   const onEndRef = useRef(onEnd);
   const onErrorRef = useRef(onError);
 
@@ -127,11 +128,57 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       return;
     }
 
-    if (isListening) return;
+    if (isListening || isStartingRef.current) return;
 
-    setDebugStatus('録音準備中');
+    isStartingRef.current = true;
+    setDebugStatus('マイク取得中');
 
     try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      mediaStreamRef.current = stream;
+      const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) {
+        throw new Error('AudioContext not supported');
+      }
+      const audioContext = new AudioContextClass();
+      audioContextRef.current = audioContext;
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+      const source = audioContext.createMediaStreamSource(stream);
+      sourceRef.current = source;
+
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+      const gain = audioContext.createGain();
+      gain.gain.value = 0;
+
+      processor.onaudioprocess = (event) => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        const input = event.inputBuffer.getChannelData(0);
+        const downsampled = downsampleBuffer(input, audioContext.sampleRate, DEFAULT_SAMPLE_RATE);
+        const pcm = new Int16Array(downsampled.length);
+        for (let i = 0; i < downsampled.length; i += 1) {
+          const s = Math.max(-1, Math.min(1, downsampled[i]));
+          pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        wsRef.current.send(pcm.buffer);
+      };
+
+      source.connect(processor);
+      processor.connect(gain);
+      gain.connect(audioContext.destination);
+
+      setDebugStatus('接続中');
+
       const token = await getToken();
       const model = process.env.NEXT_PUBLIC_DEEPGRAM_STT_MODEL || DEFAULT_MODEL;
       const language = process.env.NEXT_PUBLIC_DEEPGRAM_STT_LANGUAGE || DEFAULT_LANGUAGE;
@@ -152,53 +199,10 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
 
-      ws.onopen = async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              channelCount: 1,
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            },
-          });
-
-          mediaStreamRef.current = stream;
-          const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-          const audioContext = new AudioContextClass();
-          audioContextRef.current = audioContext;
-          const source = audioContext.createMediaStreamSource(stream);
-          sourceRef.current = source;
-
-          const processor = audioContext.createScriptProcessor(4096, 1, 1);
-          processorRef.current = processor;
-          const gain = audioContext.createGain();
-          gain.gain.value = 0;
-
-          processor.onaudioprocess = (event) => {
-            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-            const input = event.inputBuffer.getChannelData(0);
-            const downsampled = downsampleBuffer(input, audioContext.sampleRate, DEFAULT_SAMPLE_RATE);
-            const pcm = new Int16Array(downsampled.length);
-            for (let i = 0; i < downsampled.length; i += 1) {
-              const s = Math.max(-1, Math.min(1, downsampled[i]));
-              pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-            }
-            wsRef.current.send(pcm.buffer);
-          };
-
-          source.connect(processor);
-          processor.connect(gain);
-          gain.connect(audioContext.destination);
-
-          setIsListening(true);
-          setDebugStatus('録音中 (Deepgram)');
-        } catch (error) {
-          onErrorRef.current?.('audio-capture');
-          setDebugStatus('マイク許可が必要です');
-          cleanupAudio();
-          cleanupSocket();
-        }
+      ws.onopen = () => {
+        setIsListening(true);
+        setDebugStatus('録音中 (Deepgram)');
+        isStartingRef.current = false;
       };
 
       ws.onmessage = (event) => {
@@ -226,9 +230,11 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
         }
       };
 
-      ws.onerror = () => {
+      ws.onerror = (event) => {
+        console.warn('[Deepgram STT] websocket error', event);
         onErrorRef.current?.('socket-error');
         setDebugStatus('変換エラー');
+        isStartingRef.current = false;
       };
 
       ws.onclose = () => {
@@ -238,10 +244,15 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
         if (isFinalizingRef.current) {
           finalize();
         }
+        isStartingRef.current = false;
       };
     } catch (error) {
+      console.warn('[Deepgram STT] start error', error);
       onErrorRef.current?.('token');
       setDebugStatus('変換エラー');
+      isStartingRef.current = false;
+      cleanupAudio();
+      cleanupSocket();
     }
   }, [cleanupAudio, cleanupSocket, finalize, getToken, isListening, isSupported]);
 
