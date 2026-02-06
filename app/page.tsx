@@ -682,6 +682,7 @@ export default function Home() {
     log(`メッセージ送信開始: ${text.substring(0, 10)}...`);
     setSendError(null);
     lastSendTextRef.current = text;
+    unlockAudio();
 
     // Abort any existing request
     if (abortControllerRef.current) {
@@ -774,7 +775,7 @@ export default function Home() {
         abortControllerRef.current = null;
       }
     }
-  }, [messages, userId, isSending, log, stopTTS, playTTS]);
+  }, [messages, userId, isSending, log, stopTTS, playTTS, unlockAudio]);
 
   // Save to Obsidian
   const handleSave = useCallback(async () => {
@@ -1014,6 +1015,9 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     if ('type' in e && e.type === 'touchstart') {
       touchActiveRef.current = true;
     }
+    if ('pointerType' in e && e.pointerType === 'touch') {
+      touchActiveRef.current = true;
+    }
     if ('pointerType' in e && e.pointerType === 'mouse' && touchActiveRef.current) {
       return;
     }
@@ -1058,6 +1062,9 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
   const handleMicUp = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
     if ('type' in e && e.type === 'touchend') {
+      touchActiveRef.current = false;
+    }
+    if ('pointerType' in e && e.pointerType === 'touch') {
       touchActiveRef.current = false;
     }
     if ('pointerType' in e && e.pointerType === 'mouse' && touchActiveRef.current) {
@@ -1623,8 +1630,8 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
                 onPointerDown={handleMicDown}
                 onPointerUp={handleMicUp}
                 onPointerCancel={handleMicCancel}
-                onTouchStart={!supportsPointerEvents ? handleMicDown : undefined}
-                onTouchEnd={!supportsPointerEvents ? handleMicUp : undefined}
+                onTouchStart={handleMicDown}
+                onTouchEnd={handleMicUp}
                 onMouseDown={!supportsPointerEvents ? handleMicDown : undefined}
                 onMouseUp={!supportsPointerEvents ? handleMicUp : undefined}
                 whileTap={{ scale: 0.95 }}
