@@ -15,7 +15,13 @@ export async function POST(request: NextRequest) {
         }
 
         const audioBuffer = await audioFile.arrayBuffer();
-        const contentType = audioFile.type || 'audio/webm';
+        const rawContentType = (audioFile.type || '').toLowerCase();
+        let contentType = 'application/octet-stream';
+        if (rawContentType.startsWith('audio/webm')) contentType = 'audio/webm';
+        else if (rawContentType.startsWith('audio/mp4') || rawContentType.startsWith('audio/m4a')) contentType = 'audio/mp4';
+        else if (rawContentType.startsWith('audio/wav') || rawContentType.startsWith('audio/x-wav')) contentType = 'audio/wav';
+        else if (rawContentType.startsWith('audio/ogg')) contentType = 'audio/ogg';
+        else if (rawContentType.startsWith('audio/mpeg') || rawContentType.startsWith('audio/mp3')) contentType = 'audio/mpeg';
         const model = process.env.DEEPGRAM_STT_MODEL || process.env.NEXT_PUBLIC_DEEPGRAM_STT_MODEL || 'nova-2';
         const language = process.env.DEEPGRAM_STT_LANGUAGE || process.env.NEXT_PUBLIC_DEEPGRAM_STT_LANGUAGE || 'ja';
         const params = new URLSearchParams({
@@ -25,7 +31,7 @@ export async function POST(request: NextRequest) {
             punctuate: 'true',
         });
 
-        console.log(`[API/STT] Starting Deepgram transcription... contentType=${contentType}, bytes=${audioBuffer.byteLength}`);
+        console.log(`[API/STT] Starting Deepgram transcription... rawType=${rawContentType || 'n/a'}, normalizedType=${contentType}, bytes=${audioBuffer.byteLength}`);
         const startTime = Date.now();
 
         const deepgramResponse = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
@@ -41,8 +47,12 @@ export async function POST(request: NextRequest) {
             const errorText = await deepgramResponse.text();
             console.error(`[API/STT] Deepgram error: ${deepgramResponse.status} ${errorText}`);
             return NextResponse.json(
-                { error: 'Deepgram STT failed', details: errorText },
-                { status: 500 }
+                {
+                    error: 'Deepgram STT failed',
+                    deepgramStatus: deepgramResponse.status,
+                    details: errorText,
+                },
+                { status: deepgramResponse.status }
             );
         }
 

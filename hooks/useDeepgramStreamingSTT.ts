@@ -7,7 +7,7 @@ interface UseDeepgramStreamingSTTOptions {
   onError?: (error: string) => void;
 }
 
-type SttErrorCode = 'permission' | 'no-mic' | 'device-busy' | 'ws' | 'unknown';
+type SttErrorCode = 'permission' | 'no-mic' | 'device-busy' | 'token' | 'ws' | 'unknown';
 
 const MIME_TYPE_CANDIDATES = [
   'audio/webm;codecs=opus',
@@ -89,6 +89,24 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
 
       if (!response.ok) {
         const text = await response.text().catch(() => '');
+        const lower = text.toLowerCase();
+
+        if (lower.includes('invalid_auth') || lower.includes('invalid credentials') || response.status === 401 || response.status === 403) {
+          setDebugStatus('トークン取得エラー');
+          onErrorRef.current?.('token');
+          return;
+        }
+        if (lower.includes('too many requests') || response.status === 429) {
+          setDebugStatus('接続タイムアウト');
+          onErrorRef.current?.('ws');
+          return;
+        }
+        if (lower.includes('unsupported') || lower.includes('codec') || lower.includes('content-type') || lower.includes('media') || response.status === 415) {
+          setDebugStatus('音声初期化エラー');
+          onErrorRef.current?.('ws');
+          return;
+        }
+
         throw new Error(text || `stt ${response.status}`);
       }
 
