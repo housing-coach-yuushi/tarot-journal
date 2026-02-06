@@ -112,6 +112,7 @@ export default function Home() {
   const isHoldingMicRef = useRef<boolean>(false);
   const isListeningRef = useRef<boolean>(false);
   const micRetryTimerRef = useRef<number | null>(null);
+  const heldTranscriptRef = useRef<string>('');
   // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
 
@@ -176,9 +177,16 @@ export default function Home() {
     cancel,
   } = useElevenLabsSTT({
     onEnd: (text: string) => {
-      if (sendOnFinalRef.current && text.trim()) {
+      if (text.trim()) {
+        heldTranscriptRef.current = `${heldTranscriptRef.current} ${text}`.trim();
+      }
+      if (sendOnFinalRef.current) {
         sendOnFinalRef.current = false;
-        sendMessage(text);
+        const toSend = heldTranscriptRef.current;
+        heldTranscriptRef.current = '';
+        if (toSend.trim()) {
+          sendMessage(toSend);
+        }
         return;
       }
       if (isHoldingMicRef.current) {
@@ -796,6 +804,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     unlockAudio();
     isHoldingMicRef.current = true;
     sendOnFinalRef.current = false;
+    heldTranscriptRef.current = '';
     startListening();
     if (micRetryTimerRef.current) {
       window.clearTimeout(micRetryTimerRef.current);
@@ -817,11 +826,18 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       return;
     }
     log('離した');
-    if (!isListening) return;
     isHoldingMicRef.current = false;
     if (micRetryTimerRef.current) {
       window.clearTimeout(micRetryTimerRef.current);
       micRetryTimerRef.current = null;
+    }
+    if (!isListening) {
+      const toSend = heldTranscriptRef.current;
+      heldTranscriptRef.current = '';
+      if (toSend.trim()) {
+        sendMessage(toSend);
+      }
+      return;
     }
     sendOnFinalRef.current = true;
     stopAndSend();
@@ -832,6 +848,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     if (!isListening) return;
     sendOnFinalRef.current = false;
     isHoldingMicRef.current = false;
+    heldTranscriptRef.current = '';
     if (micRetryTimerRef.current) {
       window.clearTimeout(micRetryTimerRef.current);
       micRetryTimerRef.current = null;
@@ -1243,7 +1260,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
             className="bg-white/10 backdrop-blur-md rounded-2xl px-6 py-3 max-w-md"
           >
             <p className="text-white/80 text-sm text-center">
-              {currentTranscript || '押したまま話してください...'}
+              {(heldTranscriptRef.current ? `${heldTranscriptRef.current} ${currentTranscript}`.trim() : currentTranscript) || '押したまま話してください...'}
             </p>
           </motion.div>
         </div>
