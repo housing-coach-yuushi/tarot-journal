@@ -7,6 +7,8 @@ interface UseDeepgramStreamingSTTOptions {
   onError?: (error: string) => void;
 }
 
+type SttErrorCode = 'permission' | 'no-mic' | 'device-busy' | 'token' | 'audio-context' | 'ws' | 'unknown';
+
 const DEFAULT_SAMPLE_RATE = 16000;
 const DEFAULT_MODEL = 'nova-2';
 const DEFAULT_LANGUAGE = 'ja';
@@ -125,11 +127,22 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
 
   const getToken = useCallback(async (): Promise<string> => {
     const res = await fetch('/api/deepgram/token');
+    const text = await res.text().catch(() => '');
     if (!res.ok) {
-      throw new Error('Deepgram token error');
+      throw new Error(`Deepgram token error: ${text || res.status}`);
     }
-    const data = await res.json();
-    return data.access_token as string;
+    try {
+      const data = JSON.parse(text);
+      if (!data?.access_token) {
+        throw new Error('Deepgram token missing access_token');
+      }
+      return data.access_token as string;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Deepgram token parse error');
+    }
   }, []);
 
   const finalize = useCallback(() => {
@@ -312,7 +325,8 @@ registerProcessor('pcm-sender', PcmSender);
 
       ws.onerror = (event) => {
         console.warn('[Deepgram STT] websocket error', event);
-        setDebugStatus('変換エラー');
+        setDebugStatus('接続エラー');
+        onErrorRef.current?.('ws');
         isStartingRef.current = false;
         // Don't tear down isListening here — let onclose handle it
       };
@@ -330,9 +344,32 @@ registerProcessor('pcm-sender', PcmSender);
         isStartingRef.current = false;
       };
     } catch (error) {
-      console.warn('[Deepgram STT] start error', error);
-      onErrorRef.current?.('token');
-      setDebugStatus('変換エラー');
+      let errorCode: SttErrorCode = 'unknown';
+      let status = '変換エラー';
+      if (error instanceof DOMException) {
+        if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+          errorCode = 'permission';
+          status = 'マイク許可が必要です';
+        } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+          errorCode = 'no-mic';
+          status = 'マイクが見つかりません';
+        } else if (error.name === 'NotReadableError' || error.name === 'AbortError') {
+          errorCode = 'device-busy';
+          status = 'マイク利用エラー';
+        }
+      } else if (error instanceof Error) {
+        const lower = error.message.toLowerCase();
+        if (lower.includes('token')) {
+          errorCode = 'token';
+          status = 'トークン取得エラー';
+        } else if (lower.includes('audiocontext')) {
+          errorCode = 'audio-context';
+          status = '音声初期化エラー';
+        }
+      }
+      console.warn('[Deepgram STT] start error', errorCode, error);
+      onErrorRef.current?.(errorCode);
+      setDebugStatus(status);
       setIsListening(false);
       isStartingRef.current = false;
       cleanupAudio();

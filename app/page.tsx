@@ -116,6 +116,7 @@ export default function Home() {
   const noticeTimerRef = useRef<number | null>(null);
   const ttsEnabledRef = useRef<boolean>(ttsEnabled);
   const hasHistoryRef = useRef<boolean>(false);
+  const checkinTtsPlayedRef = useRef<boolean>(false);
   const touchActiveRef = useRef<boolean>(false);
   const sendOnFinalRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
@@ -204,18 +205,39 @@ export default function Home() {
       }
     },
     onError: (errorType: string) => {
+      log(`[STT] エラー: ${errorType}`);
       if (!isHoldingMicRef.current) return;
-      // Retry on any error while user is holding the mic
-      window.setTimeout(() => {
-        if (isHoldingMicRef.current) startListening();
-      }, 300);
+
+      // Retry only for transient websocket errors while still holding.
+      if (errorType === 'ws') {
+        window.setTimeout(() => {
+          if (isHoldingMicRef.current) startListening();
+        }, 300);
+        return;
+      }
+
+      // For permission/token/device issues, stop hold to avoid silent retry loops.
+      isHoldingMicRef.current = false;
+      if (micRetryTimerRef.current) {
+        window.clearTimeout(micRetryTimerRef.current);
+        micRetryTimerRef.current = null;
+      }
     },
   });
 
   useEffect(() => {
-    if (isHoldingMicRef.current) return;
     if (debugStatus === 'マイク許可が必要です') {
       pushNotice('error', 'マイクの許可が必要です。ブラウザ設定を確認してください。', 6000);
+    } else if (debugStatus === 'マイクが見つかりません') {
+      pushNotice('error', 'マイクが見つかりません。接続状態をご確認ください。', 6000);
+    } else if (debugStatus === 'マイク利用エラー') {
+      pushNotice('error', 'マイクが他のアプリで使用中の可能性があります。', 5000);
+    } else if (debugStatus === 'トークン取得エラー') {
+      pushNotice('error', '音声サーバーへの接続に失敗しました。時間をおいて再試行してください。', 6000);
+    } else if (debugStatus === '接続エラー') {
+      pushNotice('error', '音声認識の接続が不安定です。再度お試しください。', 5000);
+    } else if (debugStatus === '音声初期化エラー') {
+      pushNotice('error', '音声の初期化に失敗しました。ページ再読み込みをお試しください。', 6000);
     } else if (debugStatus === '変換エラー') {
       pushNotice('error', '音声の変換に失敗しました。もう一度試してください。', 5000);
     } else if (debugStatus === '音声が短すぎます') {
@@ -555,6 +577,8 @@ export default function Home() {
         log('バックグラウンド準備開始...');
         setIsPreparing(true);
         setInitError(null);
+        checkinTtsPlayedRef.current = false;
+        hasHistoryRef.current = false;
 
         const fetchWithTimeout = async (url: string, options?: RequestInit, timeout = 60000) => {
           const controller = new AbortController();
@@ -686,6 +710,24 @@ export default function Home() {
       }]);
     }
   }, [isReady, isLoading, log, checkinLines, initError]);
+
+  useEffect(() => {
+    if (isLoading || !audioUnlocked || !isReady) return;
+    if (hasHistoryRef.current) return;
+    if (checkinTtsPlayedRef.current) return;
+    if (!ttsEnabled) return;
+
+    const firstMessage = messages[0];
+    if (!firstMessage || firstMessage.role !== 'assistant' || !firstMessage.id.startsWith('checkin-')) {
+      return;
+    }
+    const checkinText = firstMessage.content.trim();
+    if (!checkinText) return;
+
+    checkinTtsPlayedRef.current = true;
+    log('チェックイン音声再生');
+    playTTS(checkinText);
+  }, [audioUnlocked, isLoading, isReady, messages, playTTS, log, ttsEnabled]);
 
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
@@ -1174,12 +1216,12 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
             >
               <div className="mx-auto mb-7 h-1.5 w-14 rounded-full bg-white/45" />
               <div className="mb-7 text-center">
-                <p className="text-[11px] tracking-[0.22em] text-white/65">GEORGE TAROT JOURNAL</p>
-                <h1 className="mt-4 text-2xl font-semibold tracking-[0.04em] text-white">
-                  声で、心をひらく
+                <p className="text-[11px] font-medium tracking-[0.20em] text-white/60">GEORGE TAROT JOURNAL</p>
+                <h1 className="mt-4 text-[26px] font-semibold tracking-[0.02em] text-white">
+                  ジャーナルを始める
                 </h1>
-                <p className="mt-3 text-sm leading-relaxed text-white/70">
-                  最初のタップで音声再生を有効化します。
+                <p className="mt-3 text-sm leading-relaxed tracking-[0.01em] text-white/68">
+                  準備ができたら、下のボタンを押してください。
                 </p>
               </div>
 
