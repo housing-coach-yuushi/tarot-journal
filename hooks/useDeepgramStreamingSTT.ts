@@ -33,6 +33,15 @@ function downsampleBuffer(input: Float32Array, inputSampleRate: number, outputSa
   return result;
 }
 
+function floatToPcm16(float32: Float32Array): Int16Array {
+  const pcm = new Int16Array(float32.length);
+  for (let i = 0; i < float32.length; i += 1) {
+    const s = Math.max(-1, Math.min(1, float32[i]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return pcm;
+}
+
 export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions = {}) {
   const { onEnd, onError } = options;
 
@@ -44,7 +53,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const wsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const processorNodeRef = useRef<AudioWorkletNode | ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const finalTranscriptRef = useRef('');
   const interimTranscriptRef = useRef('');
@@ -52,6 +61,9 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const isStartingRef = useRef(false);
   const onEndRef = useRef(onEnd);
   const onErrorRef = useRef(onError);
+  // Buffer PCM chunks while WebSocket is connecting
+  const pendingChunksRef = useRef<ArrayBuffer[]>([]);
+  const wsReadyRef = useRef(false);
 
   useEffect(() => {
     onEndRef.current = onEnd;
@@ -68,13 +80,18 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   }, []);
 
   const cleanupAudio = useCallback(() => {
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current.onaudioprocess = null;
-      processorRef.current = null;
+    if (processorNodeRef.current) {
+      try { processorNodeRef.current.disconnect(); } catch { /* ignore */ }
+      if ('onaudioprocess' in processorNodeRef.current) {
+        (processorNodeRef.current as ScriptProcessorNode).onaudioprocess = null;
+      }
+      if ('port' in processorNodeRef.current && processorNodeRef.current instanceof AudioWorkletNode) {
+        try { processorNodeRef.current.port.close(); } catch { /* ignore */ }
+      }
+      processorNodeRef.current = null;
     }
     if (sourceRef.current) {
-      sourceRef.current.disconnect();
+      try { sourceRef.current.disconnect(); } catch { /* ignore */ }
       sourceRef.current = null;
     }
     if (mediaStreamRef.current) {
@@ -88,12 +105,14 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   }, []);
 
   const cleanupSocket = useCallback(() => {
+    wsReadyRef.current = false;
+    pendingChunksRef.current = [];
     if (wsRef.current) {
       wsRef.current.onopen = null;
       wsRef.current.onclose = null;
       wsRef.current.onmessage = null;
       wsRef.current.onerror = null;
-      wsRef.current.close();
+      try { wsRef.current.close(); } catch { /* ignore */ }
       wsRef.current = null;
     }
   }, []);
@@ -122,18 +141,36 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     isFinalizingRef.current = false;
   }, [resetTranscript]);
 
+  // Send a PCM buffer, or queue it if WebSocket isn't ready yet
+  const sendPcm = useCallback((buffer: ArrayBuffer) => {
+    if (wsReadyRef.current && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(buffer);
+    } else {
+      // Buffer up to ~5 seconds of audio at 16kHz 16bit mono = ~160KB/s
+      if (pendingChunksRef.current.length < 200) {
+        pendingChunksRef.current.push(buffer);
+      }
+    }
+  }, []);
+
   const startListening = useCallback(async () => {
     if (!isSupported) {
       setDebugStatus('未対応');
       return;
     }
 
-    if (isListening || isStartingRef.current) return;
+    if (isStartingRef.current) return;
+    // Use ref check to avoid stale closure issue with isListening state
+    if (wsRef.current || mediaStreamRef.current) return;
 
     isStartingRef.current = true;
+    isFinalizingRef.current = false;
+    wsReadyRef.current = false;
+    pendingChunksRef.current = [];
     setDebugStatus('マイク取得中');
 
     try {
+      // 1) getUserMedia FIRST — must happen synchronously in user gesture on iOS
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -148,7 +185,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       if (!AudioContextClass) {
         throw new Error('AudioContext not supported');
       }
-      const audioContext = new AudioContextClass();
+      const audioContext = new AudioContextClass({ sampleRate: DEFAULT_SAMPLE_RATE });
       audioContextRef.current = audioContext;
       if (audioContext.state === 'suspended') {
         await audioContext.resume();
@@ -156,31 +193,66 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       const source = audioContext.createMediaStreamSource(stream);
       sourceRef.current = source;
 
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-      const gain = audioContext.createGain();
-      gain.gain.value = 0;
+      // 2) Set up audio processor (AudioWorklet preferred, ScriptProcessor fallback)
+      let processorSetUp = false;
+      if (typeof audioContext.audioWorklet !== 'undefined') {
+        try {
+          const workletCode = `
+class PcmSender extends AudioWorkletProcessor {
+  process(inputs) {
+    const ch = inputs[0]?.[0];
+    if (ch && ch.length > 0) this.port.postMessage(ch.buffer, [ch.buffer]);
+    return true;
+  }
+}
+registerProcessor('pcm-sender', PcmSender);
+`;
+          const blob = new Blob([workletCode], { type: 'application/javascript' });
+          const blobUrl = URL.createObjectURL(blob);
+          await audioContext.audioWorklet.addModule(blobUrl);
+          URL.revokeObjectURL(blobUrl);
 
-      processor.onaudioprocess = (event) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-        const input = event.inputBuffer.getChannelData(0);
-        const downsampled = downsampleBuffer(input, audioContext.sampleRate, DEFAULT_SAMPLE_RATE);
-        const pcm = new Int16Array(downsampled.length);
-        for (let i = 0; i < downsampled.length; i += 1) {
-          const s = Math.max(-1, Math.min(1, downsampled[i]));
-          pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          const workletNode = new AudioWorkletNode(audioContext, 'pcm-sender');
+          workletNode.port.onmessage = (e) => {
+            const float32 = new Float32Array(e.data as ArrayBuffer);
+            const downsampled = downsampleBuffer(float32, audioContext.sampleRate, DEFAULT_SAMPLE_RATE);
+            const pcm = floatToPcm16(downsampled);
+            sendPcm(pcm.buffer as ArrayBuffer);
+          };
+          source.connect(workletNode);
+          workletNode.connect(audioContext.destination);
+          processorNodeRef.current = workletNode;
+          processorSetUp = true;
+        } catch {
+          // AudioWorklet failed, fall through to ScriptProcessor
         }
-        wsRef.current.send(pcm.buffer);
-      };
+      }
 
-      source.connect(processor);
-      processor.connect(gain);
-      gain.connect(audioContext.destination);
+      if (!processorSetUp) {
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        const gain = audioContext.createGain();
+        gain.gain.value = 0;
 
+        processor.onaudioprocess = (event) => {
+          const input = event.inputBuffer.getChannelData(0);
+          const downsampled = downsampleBuffer(input, audioContext.sampleRate, DEFAULT_SAMPLE_RATE);
+          const pcm = floatToPcm16(downsampled);
+          sendPcm(pcm.buffer as ArrayBuffer);
+        };
+
+        source.connect(processor);
+        processor.connect(gain);
+        gain.connect(audioContext.destination);
+        processorNodeRef.current = processor;
+      }
+
+      // Mark as listening immediately — audio is capturing now
       setIsListening(true);
-      setDebugStatus('接続中');
+      setDebugStatus('録音中 (接続待ち)');
 
+      // 3) Token + WebSocket — done in parallel with audio capture
       const token = await getToken();
+
       const model = process.env.NEXT_PUBLIC_DEEPGRAM_STT_MODEL || DEFAULT_MODEL;
       const language = process.env.NEXT_PUBLIC_DEEPGRAM_STT_LANGUAGE || DEFAULT_LANGUAGE;
       const params = new URLSearchParams({
@@ -201,6 +273,13 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       wsRef.current = ws;
 
       ws.onopen = () => {
+        wsReadyRef.current = true;
+        // Flush buffered audio chunks
+        const buffered = pendingChunksRef.current;
+        pendingChunksRef.current = [];
+        for (const chunk of buffered) {
+          try { ws.send(chunk); } catch { break; }
+        }
         setDebugStatus('録音中 (Deepgram)');
         isStartingRef.current = false;
       };
@@ -226,25 +305,28 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
             interimTranscriptRef.current = transcript;
             setCurrentTranscript(`${finalTranscriptRef.current} ${interimTranscriptRef.current}`.trim());
           }
-        } catch (error) {
+        } catch {
           // ignore parse errors
         }
       };
 
       ws.onerror = (event) => {
         console.warn('[Deepgram STT] websocket error', event);
-        onErrorRef.current?.('socket-error');
         setDebugStatus('変換エラー');
         isStartingRef.current = false;
+        // Don't tear down isListening here — let onclose handle it
       };
 
       ws.onclose = () => {
-        setIsListening(false);
-        cleanupAudio();
-        cleanupSocket();
+        wsReadyRef.current = false;
+        // Only set not-listening if audio is also stopped
+        // (avoids premature stop if WS reconnects)
         if (isFinalizingRef.current) {
           finalize();
         }
+        setIsListening(false);
+        cleanupAudio();
+        cleanupSocket();
         isStartingRef.current = false;
       };
     } catch (error) {
@@ -256,25 +338,30 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       cleanupAudio();
       cleanupSocket();
     }
-  }, [cleanupAudio, cleanupSocket, finalize, getToken, isListening, isSupported]);
+  }, [cleanupAudio, cleanupSocket, finalize, getToken, isSupported, sendPcm]);
 
   const stopAndSend = useCallback(() => {
-    if (!wsRef.current) return;
     isFinalizingRef.current = true;
-    try {
-      wsRef.current.send(JSON.stringify({ type: 'Finalize' }));
-    } catch {
-      // ignore
-    }
-    window.setTimeout(() => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.close();
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'Finalize' }));
+      } catch {
+        // ignore
       }
-    }, 1000);
+      window.setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.close();
+        }
+      }, 1500);
+    } else {
+      // WS not open — just finalize with what we have
+      finalize();
+      cleanupSocket();
+    }
     setDebugStatus('処理中...');
     setIsListening(false);
     cleanupAudio();
-  }, [cleanupAudio]);
+  }, [cleanupAudio, cleanupSocket, finalize]);
 
   const cancel = useCallback(() => {
     isFinalizingRef.current = false;

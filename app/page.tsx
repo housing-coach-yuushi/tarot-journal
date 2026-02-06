@@ -205,14 +205,18 @@ export default function Home() {
         return;
       }
       if (isHoldingMicRef.current) {
-        window.setTimeout(() => startListening(), 100);
+        // Delay restart to allow cleanup to finish
+        window.setTimeout(() => {
+          if (isHoldingMicRef.current) startListening();
+        }, 200);
       }
     },
     onError: (errorType: string) => {
       if (!isHoldingMicRef.current) return;
-      if (errorType === 'no-speech' || errorType === 'aborted' || errorType === 'audio-capture') {
-        window.setTimeout(() => startListening(), 150);
-      }
+      // Retry on any error while user is holding the mic
+      window.setTimeout(() => {
+        if (isHoldingMicRef.current) startListening();
+      }, 300);
     },
   });
 
@@ -325,6 +329,50 @@ export default function Home() {
     };
   }, []);
 
+  const ensureTtsAudioContext = useCallback(async () => {
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    // Recreate if closed or missing
+    if (!ttsAudioContextRef.current || ttsAudioContextRef.current.state === 'closed') {
+      const ctx = new AudioContextClass();
+      const gain = ctx.createGain();
+      gain.gain.value = 1;
+      gain.connect(ctx.destination);
+      ttsAudioContextRef.current = ctx;
+      ttsGainRef.current = gain;
+    }
+    if (ttsAudioContextRef.current.state === 'suspended') {
+      await ttsAudioContextRef.current.resume();
+    }
+  }, []);
+
+  const unlockAudio = useCallback(async () => {
+    try {
+      // Always try to ensure TTS AudioContext is alive (even if already unlocked)
+      await ensureTtsAudioContext();
+
+      if (audioUnlocked) return;
+      if (!audioRef.current) return;
+
+      const audio = audioRef.current;
+      audio.volume = 1.0;
+      audio.muted = false;
+      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+      audio.load();
+      const p = audio.play();
+      if (p) {
+        await p;
+        audio.pause();
+        audio.currentTime = 0;
+      }
+      setAudioUnlocked(true);
+      log('オーディオアンロック完了');
+    } catch (e) {
+      log('オーディオアンロック失敗: ' + (e as Error).message);
+    }
+  }, [audioUnlocked, log, ensureTtsAudioContext]);
+
   const playDeepgramTTS = useCallback(async (text: string, version: number, voiceIdOverride?: string) => {
     if (typeof window === 'undefined') return false;
     stopDeepgramTTS();
@@ -343,25 +391,14 @@ export default function Home() {
     ws.binaryType = 'arraybuffer';
     ttsWsRef.current = ws;
 
-    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) {
-      throw new Error('AudioContext not supported');
-    }
-    if (!ttsAudioContextRef.current) {
-      const ctx = new AudioContextClass({ sampleRate: Number.isFinite(sampleRate) ? sampleRate : undefined });
-      ttsAudioContextRef.current = ctx;
-    }
-    if (ttsAudioContextRef.current && !ttsGainRef.current) {
-      const gain = ttsAudioContextRef.current.createGain();
-      gain.gain.value = 1;
-      gain.connect(ttsAudioContextRef.current.destination);
-      ttsGainRef.current = gain;
+    // Use pre-created AudioContext from user gesture (ensureTtsAudioContext)
+    // Recreate only if closed or missing
+    await ensureTtsAudioContext();
+    if (!ttsAudioContextRef.current || !ttsGainRef.current) {
+      throw new Error('AudioContext initialization failed — user gesture may be required');
     }
     const ctx = ttsAudioContextRef.current;
     const gain = ttsGainRef.current;
-    if (!ctx || !gain) {
-      throw new Error('AudioContext initialization failed');
-    }
     if (ctx.state === 'suspended') {
       await ctx.resume();
     }
@@ -456,7 +493,7 @@ export default function Home() {
     }, 8000);
 
     return true;
-  }, [getDeepgramToken, log, scheduleTtsChunk, speakWithBrowser, stopDeepgramTTS]);
+  }, [ensureTtsAudioContext, getDeepgramToken, log, scheduleTtsChunk, speakWithBrowser, stopDeepgramTTS]);
 
   // Play TTS for a message (Deepgram streaming)
   const playTTS = useCallback(async (text: string) => {
@@ -502,41 +539,6 @@ export default function Home() {
     setIsSpeaking(false);
     setIsGeneratingAudio(false);
   }, [log, stopDeepgramTTS]);
-
-  const unlockAudio = useCallback(async () => {
-    if (audioUnlocked || !audioRef.current) return;
-    try {
-      const audio = audioRef.current;
-      audio.volume = 1.0;
-      audio.muted = false;
-      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-      audio.load();
-      const p = audio.play();
-      if (p) {
-        await p;
-        audio.pause();
-        audio.currentTime = 0;
-      }
-      if (!ttsAudioContextRef.current) {
-        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (AudioContextClass) {
-          const ctx = new AudioContextClass();
-          const gain = ctx.createGain();
-          gain.gain.value = 1;
-          gain.connect(ctx.destination);
-          ttsAudioContextRef.current = ctx;
-          ttsGainRef.current = gain;
-        }
-      }
-      if (ttsAudioContextRef.current && ttsAudioContextRef.current.state === 'suspended') {
-        await ttsAudioContextRef.current.resume();
-      }
-      setAudioUnlocked(true);
-      log('オーディオアンロック完了');
-    } catch (e) {
-      log('オーディオアンロック失敗: ' + (e as Error).message);
-    }
-  }, [audioUnlocked, log]);
 
 
   // Ref to hold pre-fetched initial data for tap-to-start
@@ -1040,6 +1042,9 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     }
 
     stopTTS();
+    // CRITICAL: Ensure TTS AudioContext is created/resumed INSIDE this user gesture
+    // iOS Safari requires AudioContext creation/resume within a user interaction handler
+    ensureTtsAudioContext();
     unlockAudio();
     isHoldingMicRef.current = true;
     sendOnFinalRef.current = false;
