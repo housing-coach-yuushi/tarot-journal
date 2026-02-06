@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings, Share2 } from 'lucide-react';
 import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
-import { useDeepgramStreamingSTT } from '@/hooks/useDeepgramStreamingSTT';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { TarotCard, DrawnCard, drawRandomCard } from '@/lib/tarot/cards';
 import { DEFAULT_VOICE_ID, getVoiceById } from '@/lib/tts/voices';
 import { Radio } from 'lucide-react';
@@ -110,6 +110,8 @@ export default function Home() {
   const ttsEnabledRef = useRef<boolean>(ttsEnabled);
   const hasHistoryRef = useRef<boolean>(false);
   const checkinTtsPlayedRef = useRef<boolean>(false);
+  const checkinTtsAttemptingRef = useRef<boolean>(false);
+  const checkinTtsRetryTimerRef = useRef<number | null>(null);
   const tapToStartBusyRef = useRef<boolean>(false);
   const wsRetryCountRef = useRef<number>(0);
   const touchActiveRef = useRef<boolean>(false);
@@ -165,7 +167,7 @@ export default function Home() {
     setUserId(getUserId());
   }, []);
 
-  // Speech recognition hook - Deepgram Streaming
+  // Speech recognition hook - Browser native (real-time)
   const {
     isListening,
     currentTranscript,
@@ -174,61 +176,35 @@ export default function Home() {
     startListening,
     stopAndSend,
     cancel,
-  } = useDeepgramStreamingSTT({
-    onEnd: (text: string) => {
-      if (text.trim()) {
-        heldTranscriptRef.current = `${heldTranscriptRef.current} ${text}`.trim();
+  } = useSpeechRecognition({
+    lang: 'ja-JP',
+    onFinalResult: (text: string) => {
+      const finalText = text.trim();
+      sendOnFinalRef.current = false;
+      if (pendingSendTimerRef.current) {
+        window.clearTimeout(pendingSendTimerRef.current);
+        pendingSendTimerRef.current = null;
       }
-      // If user already released mic, always send when transcript arrives.
-      if (sendOnFinalRef.current || !isHoldingMicRef.current) {
-        sendOnFinalRef.current = false;
-        if (pendingSendTimerRef.current) {
-          window.clearTimeout(pendingSendTimerRef.current);
-          pendingSendTimerRef.current = null;
-        }
-        const toSend = heldTranscriptRef.current;
-        heldTranscriptRef.current = '';
-        if (toSend.trim()) {
-          sendMessage(toSend);
-        }
-        return;
-      }
-      if (isHoldingMicRef.current) {
-        // Delay restart to allow cleanup to finish
-        window.setTimeout(() => {
-          if (isHoldingMicRef.current) startListening();
-        }, 200);
-      }
-    },
-    onError: (errorType: string, detail?: string) => {
-      log(`[STT] エラー: ${errorType}${detail ? ` (${detail.slice(0, 120)})` : ''}`);
-      if (!isHoldingMicRef.current) return;
-
-      // Retry only for transient websocket errors while still holding.
-      if (errorType === 'ws') {
-        wsRetryCountRef.current += 1;
-        if (wsRetryCountRef.current > 2) {
-          isHoldingMicRef.current = false;
-          pushNotice('error', '音声認識サーバーに接続できません。ネットワークを確認して再試行してください。', 6000);
-          return;
-        }
-        window.setTimeout(() => {
-          if (isHoldingMicRef.current) startListening();
-        }, 300);
-        return;
-      }
-
-      // For permission/token/device issues, stop hold to avoid silent retry loops.
-      isHoldingMicRef.current = false;
-      if (micRetryTimerRef.current) {
-        window.clearTimeout(micRetryTimerRef.current);
-        micRetryTimerRef.current = null;
-      }
+      if (!finalText) return;
+      heldTranscriptRef.current = finalText;
+      sendMessage(finalText);
+      heldTranscriptRef.current = '';
     },
   });
 
   useEffect(() => {
-    if (debugStatus === 'マイク許可が必要です') {
+    if (debugStatus.startsWith('エラー:')) {
+      const lower = debugStatus.toLowerCase();
+      if (lower.includes('not-allowed') || lower.includes('service-not-allowed')) {
+        pushNotice('error', 'マイクの許可が必要です。ブラウザ設定を確認してください。', 6000);
+      } else if (lower.includes('audio-capture')) {
+        pushNotice('error', 'マイクが見つかりません。接続状態をご確認ください。', 6000);
+      } else if (lower.includes('aborted')) {
+        pushNotice('info', '音声入力が中断されました。もう一度お試しください。', 4000);
+      } else {
+        pushNotice('error', '音声の変換に失敗しました。もう一度試してください。', 5000);
+      }
+    } else if (debugStatus === 'マイク許可が必要です') {
       pushNotice('error', 'マイクの許可が必要です。ブラウザ設定を確認してください。', 6000);
     } else if (debugStatus === 'マイクが見つかりません') {
       pushNotice('error', 'マイクが見つかりません。接続状態をご確認ください。', 6000);
@@ -287,18 +263,19 @@ export default function Home() {
   const unlockAudio = useCallback(async (): Promise<boolean> => {
     try {
       if (audioUnlocked) return true;
-      if (!audioRef.current) return false;
+      if (typeof window === 'undefined') return false;
 
-      const audio = audioRef.current;
-      audio.volume = 1.0;
-      audio.muted = false;
-      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-      audio.load();
-      const p = audio.play();
+      // Use a temporary element for unlock so we never overwrite the active TTS source.
+      const unlocker = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==');
+      unlocker.volume = 0.001;
+      unlocker.muted = false;
+      unlocker.preload = 'auto';
+      unlocker.setAttribute('playsinline', 'true');
+      const p = unlocker.play();
       if (p) {
         await p;
-        audio.pause();
-        audio.currentTime = 0;
+        unlocker.pause();
+        unlocker.currentTime = 0;
       }
       setAudioUnlocked(true);
       log('オーディオアンロック完了');
@@ -342,6 +319,9 @@ export default function Home() {
       URL.revokeObjectURL(audio.src);
     }
     audio.setAttribute('playsinline', 'true');
+    audio.muted = false;
+    audio.volume = 1;
+    audio.preload = 'auto';
     audio.src = nextUrl;
     audio.currentTime = 0;
     setIsSpeaking(true);
@@ -354,6 +334,13 @@ export default function Home() {
       if (lowered.includes('notallowed') || lowered.includes('gesture') || lowered.includes('interact')) {
         const unlocked = await unlockAudio();
         if (unlocked) {
+          // Restore target source in case platform changed media state during unlock flow.
+          if (audio.src !== nextUrl) {
+            audio.src = nextUrl;
+          }
+          audio.currentTime = 0;
+          audio.muted = false;
+          audio.volume = 1;
           await audio.play();
         } else {
           throw new Error(`play blocked: ${message}`);
@@ -366,10 +353,10 @@ export default function Home() {
   }, [stopDeepgramTTS, unlockAudio]);
 
   // Play TTS for a message (server-side Deepgram REST)
-  const playTTS = useCallback(async (text: string) => {
+  const playTTS = useCallback(async (text: string): Promise<boolean> => {
     if (!ttsEnabled) {
       log('TTS無効');
-      return;
+      return false;
     }
 
     log('音声生成開始...');
@@ -379,7 +366,10 @@ export default function Home() {
     const selectedVoiceId = rawVoiceId && getVoiceById(rawVoiceId) ? rawVoiceId : DEFAULT_VOICE_ID;
 
     try {
-      await playDeepgramTTS(text, currentVersion, selectedVoiceId);
+      const ok = await playDeepgramTTS(text, currentVersion, selectedVoiceId);
+      if (ok) return true;
+      setIsGeneratingAudio(false);
+      return false;
     } catch (error) {
       const message = (error as Error).message || 'unknown';
       const shortMessage = message.length > 90 ? `${message.slice(0, 90)}...` : message;
@@ -399,6 +389,7 @@ export default function Home() {
       if (!fallbackOk) {
         setIsSpeaking(false);
       }
+      return fallbackOk;
     }
   }, [ttsEnabled, log, playDeepgramTTS, speakWithBrowser, bootstrap.identity?.voiceId, pushNotice]);
 
@@ -441,6 +432,11 @@ export default function Home() {
         setIsPreparing(true);
         setInitError(null);
         checkinTtsPlayedRef.current = false;
+        checkinTtsAttemptingRef.current = false;
+        if (checkinTtsRetryTimerRef.current) {
+          window.clearTimeout(checkinTtsRetryTimerRef.current);
+          checkinTtsRetryTimerRef.current = null;
+        }
         hasHistoryRef.current = false;
 
         const fetchWithTimeout = async (url: string, options?: RequestInit, timeout = 60000) => {
@@ -581,9 +577,10 @@ export default function Home() {
   }, [isReady, isLoading, log, checkinLines, initError]);
 
   useEffect(() => {
-    if (isLoading || !audioUnlocked || !isReady) return;
+    if (isLoading || !isReady) return;
     if (hasHistoryRef.current) return;
     if (checkinTtsPlayedRef.current) return;
+    if (checkinTtsAttemptingRef.current) return;
     if (!ttsEnabled) return;
 
     const firstMessage = messages[0];
@@ -593,10 +590,46 @@ export default function Home() {
     const checkinText = firstMessage.content.trim();
     if (!checkinText) return;
 
-    checkinTtsPlayedRef.current = true;
-    log('チェックイン音声再生');
-    playTTS(checkinText);
-  }, [audioUnlocked, isLoading, isReady, messages, playTTS, log, ttsEnabled]);
+    let canceled = false;
+    const tryPlay = async (retriesLeft: number) => {
+      if (canceled || checkinTtsPlayedRef.current) return;
+      checkinTtsAttemptingRef.current = true;
+      log(retriesLeft < 2 ? 'チェックイン音声再生(再試行)' : 'チェックイン音声再生');
+      const ok = await playTTS(checkinText);
+      checkinTtsAttemptingRef.current = false;
+      if (canceled) return;
+
+      if (ok) {
+        checkinTtsPlayedRef.current = true;
+        return;
+      }
+
+      if (retriesLeft > 0) {
+        if (checkinTtsRetryTimerRef.current) {
+          window.clearTimeout(checkinTtsRetryTimerRef.current);
+        }
+        checkinTtsRetryTimerRef.current = window.setTimeout(() => {
+          void tryPlay(retriesLeft - 1);
+        }, 1200);
+      } else {
+        log('チェックイン音声再生失敗: リトライ上限');
+      }
+    };
+
+    void tryPlay(2);
+    return () => {
+      canceled = true;
+    };
+  }, [isLoading, isReady, messages, playTTS, log, ttsEnabled]);
+
+  useEffect(() => {
+    return () => {
+      if (checkinTtsRetryTimerRef.current) {
+        window.clearTimeout(checkinTtsRetryTimerRef.current);
+        checkinTtsRetryTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Send message (visible in chat)
   const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
@@ -973,14 +1006,6 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       pendingSendTimerRef.current = null;
     }
     startListening();
-    if (micRetryTimerRef.current) {
-      window.clearTimeout(micRetryTimerRef.current);
-    }
-    micRetryTimerRef.current = window.setTimeout(() => {
-      if (isHoldingMicRef.current && !isListeningRef.current) {
-        startListening();
-      }
-    }, 600);
   };
 
   // Push-to-talk: send on release
@@ -1623,6 +1648,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
           }
         }}
         onError={() => {
+          log('音声要素エラー');
           setIsSpeaking(false);
           if (audioRef.current?.src && audioRef.current.src.startsWith('blob:')) {
             URL.revokeObjectURL(audioRef.current.src);
