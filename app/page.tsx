@@ -102,13 +102,6 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const ttsWsRef = useRef<WebSocket | null>(null);
-  const ttsAudioContextRef = useRef<AudioContext | null>(null);
-  const ttsGainRef = useRef<GainNode | null>(null);
-  const ttsPlayheadRef = useRef<number>(0);
-  const ttsSourcesRef = useRef<AudioBufferSourceNode[]>([]);
-  const ttsStartTimerRef = useRef<number | null>(null);
-  const ttsStartedRef = useRef<boolean>(false);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
   const [isShuffleOpen, setIsShuffleOpen] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -286,98 +279,13 @@ export default function Home() {
     }
   }, []);
 
-  const getDeepgramToken = useCallback(async () => {
-    const res = await fetch('/api/deepgram/token');
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(text || 'Deepgram token error');
-    }
-    const data = await res.json();
-    if (!data?.access_token) {
-      throw new Error('Deepgram token missing');
-    }
-    return data.access_token as string;
-  }, []);
-
   const stopDeepgramTTS = useCallback(() => {
-    if (ttsStartTimerRef.current) {
-      window.clearTimeout(ttsStartTimerRef.current);
-      ttsStartTimerRef.current = null;
-    }
-    ttsStartedRef.current = false;
-    ttsPlayheadRef.current = 0;
-    ttsSourcesRef.current.forEach(source => {
-      try {
-        source.stop();
-      } catch {
-        // ignore
-      }
-    });
-    ttsSourcesRef.current = [];
-    if (ttsWsRef.current) {
-      try {
-        ttsWsRef.current.close();
-      } catch {
-        // ignore
-      }
-      ttsWsRef.current = null;
-    }
-  }, []);
-
-  const scheduleTtsChunk = useCallback((ctx: AudioContext, gain: GainNode, chunk: ArrayBuffer, sampleRate: number) => {
-    const int16 = new Int16Array(chunk);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i += 1) {
-      float32[i] = int16[i] / 0x8000;
-    }
-    const audioBuffer = ctx.createBuffer(1, float32.length, sampleRate);
-    audioBuffer.copyToChannel(float32, 0);
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(gain);
-    const startAt = Math.max(ctx.currentTime + 0.02, ttsPlayheadRef.current);
-    source.start(startAt);
-    ttsPlayheadRef.current = startAt + audioBuffer.duration;
-    ttsSourcesRef.current.push(source);
-    source.onended = () => {
-      const idx = ttsSourcesRef.current.indexOf(source);
-      if (idx >= 0) ttsSourcesRef.current.splice(idx, 1);
-    };
-  }, []);
-
-  const ensureTtsAudioContext = useCallback(async () => {
-    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-
-    // Recreate if closed or missing
-    if (!ttsAudioContextRef.current || ttsAudioContextRef.current.state === 'closed') {
-      const ctx = new AudioContextClass();
-      ttsAudioContextRef.current = ctx;
-      ttsGainRef.current = null;
-    }
-    if (!ttsGainRef.current && ttsAudioContextRef.current) {
-      const ctx = ttsAudioContextRef.current;
-      const gain = ctx.createGain();
-      gain.gain.value = 1;
-      gain.connect(ctx.destination);
-      ttsGainRef.current = gain;
-    }
-    if (ttsAudioContextRef.current.state === 'suspended') {
-      await ttsAudioContextRef.current.resume();
-    }
+    // No-op: streaming WS playback was removed for stability.
   }, []);
 
   const unlockAudio = useCallback(async (): Promise<boolean> => {
     try {
-      // Always try to ensure TTS AudioContext is alive (even if already unlocked)
-      await ensureTtsAudioContext();
-      const ctxReady = !!ttsAudioContextRef.current && ttsAudioContextRef.current.state === 'running';
-      if (ctxReady && !audioUnlocked) {
-        setAudioUnlocked(true);
-        log('オーディオアンロック完了');
-      }
-
-      if (audioUnlocked || ctxReady) return true;
+      if (audioUnlocked) return true;
       if (!audioRef.current) return false;
 
       const audio = audioRef.current;
@@ -400,141 +308,47 @@ export default function Home() {
       console.warn('[audio] unlock failed', e);
       return false;
     }
-  }, [audioUnlocked, log, ensureTtsAudioContext]);
+  }, [audioUnlocked, log]);
 
   const playDeepgramTTS = useCallback(async (text: string, version: number, voiceIdOverride?: string) => {
     if (typeof window === 'undefined') return false;
     stopDeepgramTTS();
-    ttsStartedRef.current = false;
-
-    // Ensure audio output path first; if this fails, opening WS is pointless.
-    await ensureTtsAudioContext();
-    if (!ttsAudioContextRef.current || !ttsGainRef.current) {
-      throw new Error('AudioContext initialization failed — user gesture may be required');
-    }
-    const ctx = ttsAudioContextRef.current;
-    const gain = ttsGainRef.current;
-    if (ctx.state === 'suspended') {
-      await ctx.resume();
-    }
-    ttsPlayheadRef.current = Math.max(ctx.currentTime, ttsPlayheadRef.current);
-
-    const token = await getDeepgramToken();
-    const model = voiceIdOverride || process.env.NEXT_PUBLIC_DEEPGRAM_TTS_MODEL || DEFAULT_VOICE_ID;
-    const sampleRate = Number(process.env.NEXT_PUBLIC_DEEPGRAM_TTS_SAMPLE_RATE || 24000);
-    const params = new URLSearchParams({
-      model,
-      encoding: 'linear16',
-      sample_rate: String(Number.isFinite(sampleRate) ? sampleRate : 24000),
+    const response = await fetch('/api/tts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text,
+        voiceId: voiceIdOverride || DEFAULT_VOICE_ID,
+      }),
     });
 
-    const ws = new WebSocket(`wss://api.deepgram.com/v1/speak?${params.toString()}`, ['token', token]);
-    ws.binaryType = 'arraybuffer';
-    ttsWsRef.current = ws;
-    let wsFailed = false;
-    const failDeepgramTts = (reason: string) => {
-      if (version !== ttsVersionRef.current) return;
-      if (wsFailed) return;
-      wsFailed = true;
-      log(`Deepgram TTS error: ${reason}`);
-      stopDeepgramTTS();
-      setIsGeneratingAudio(false);
-      const fallbackOk = speakWithBrowser(text);
-      if (!fallbackOk) {
-        setIsSpeaking(false);
-      }
-    };
+    if (!response.ok) {
+      const details = await response.text().catch(() => '');
+      throw new Error(`TTS API error: ${response.status} ${details}`);
+    }
 
-    const finalizePlayback = () => {
-      if (version !== ttsVersionRef.current) return;
-      const remaining = Math.max(0, ttsPlayheadRef.current - ctx.currentTime);
-      window.setTimeout(() => {
-        if (version !== ttsVersionRef.current) return;
-        setIsSpeaking(false);
-        setIsGeneratingAudio(false);
-      }, Math.ceil(remaining * 1000) + 120);
-    };
+    if (version !== ttsVersionRef.current) return false;
+    if (!audioRef.current) throw new Error('audio element missing');
 
-    ws.onopen = () => {
-      try {
-        ws.send(JSON.stringify({ type: 'Speak', text }));
-        ws.send(JSON.stringify({ type: 'Flush' }));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'send failed';
-        failDeepgramTts(message);
-      }
-    };
+    const audioBlob = await response.blob();
+    if (version !== ttsVersionRef.current) return false;
 
-    ws.onmessage = (event) => {
-      if (version !== ttsVersionRef.current) return;
-      if (typeof event.data === 'string') {
-        try {
-          const msg = JSON.parse(event.data) as { type?: string; message?: string };
-          if (msg.type === 'Error') {
-            failDeepgramTts(msg.message || 'unknown');
-            return;
-          }
-        } catch {
-          // ignore non-audio messages
-        }
-        return;
-      }
-
-      const buffer = event.data as ArrayBuffer;
-      if (!buffer || buffer.byteLength === 0) return;
-      if (!ttsStartedRef.current) {
-        ttsStartedRef.current = true;
-        setIsSpeaking(true);
-        setIsGeneratingAudio(false);
-      }
-      scheduleTtsChunk(ctx, gain, buffer, Number.isFinite(sampleRate) ? sampleRate : 24000);
-    };
-
-    ws.onerror = () => {
-      failDeepgramTts('websocket error');
-    };
-
-    ws.onclose = (event) => {
-      if (ttsStartTimerRef.current) {
-        window.clearTimeout(ttsStartTimerRef.current);
-        ttsStartTimerRef.current = null;
-      }
-      if (version !== ttsVersionRef.current) return;
-      if (wsFailed) return;
-      if (!ttsStartedRef.current) {
-        // Useful for identifying auth/model mismatches from browser logs.
-        log(`Deepgram TTS close before audio: code=${event.code} reason=${event.reason || 'n/a'}`);
-        setIsGeneratingAudio(false);
-        const fallbackOk = speakWithBrowser(text);
-        if (!fallbackOk) {
-          setIsSpeaking(false);
-        }
-        return;
-      }
-      finalizePlayback();
-    };
-
-    ttsStartTimerRef.current = window.setTimeout(() => {
-      if (version !== ttsVersionRef.current) return;
-      if (!ttsStartedRef.current) {
-        log('Deepgram TTS timeout');
-        try {
-          ws.close();
-        } catch {
-          // ignore
-        }
-        setIsGeneratingAudio(false);
-        const fallbackOk = speakWithBrowser(text);
-        if (!fallbackOk) {
-          setIsSpeaking(false);
-        }
-      }
-    }, 8000);
-
+    const nextUrl = URL.createObjectURL(audioBlob);
+    const audio = audioRef.current;
+    if (audio.src && audio.src.startsWith('blob:')) {
+      URL.revokeObjectURL(audio.src);
+    }
+    audio.src = nextUrl;
+    audio.currentTime = 0;
+    setIsSpeaking(true);
+    setIsGeneratingAudio(false);
+    await audio.play();
     return true;
-  }, [ensureTtsAudioContext, getDeepgramToken, log, scheduleTtsChunk, speakWithBrowser, stopDeepgramTTS]);
+  }, [stopDeepgramTTS]);
 
-  // Play TTS for a message (Deepgram streaming)
+  // Play TTS for a message (server-side Deepgram REST)
   const playTTS = useCallback(async (text: string) => {
     if (!ttsEnabled) {
       log('TTS無効');
@@ -571,8 +385,6 @@ export default function Home() {
       && (window.speechSynthesis.speaking || window.speechSynthesis.pending);
     const hasActivePlayback = isSpeaking
       || isGeneratingAudio
-      || ttsSourcesRef.current.length > 0
-      || !!ttsWsRef.current
       || speechSynthesisActive;
     if (hasActivePlayback) {
       log('音声停止');
@@ -687,12 +499,12 @@ export default function Home() {
     if (tapToStartBusyRef.current) return;
     tapToStartBusyRef.current = true;
     try {
+      setIsLoading(false);
+      setShowTapHint(false);
       const unlocked = await unlockAudio();
       if (!unlocked) {
         pushNotice('info', '音声の準備は続行中です。必要ならマイクを押す前に画面を一度タップしてください。', 5000);
       }
-      setIsLoading(false);
-      setShowTapHint(false);
     } finally {
       tapToStartBusyRef.current = false;
     }
@@ -1128,9 +940,6 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     }
 
     stopTTS();
-    // CRITICAL: Ensure TTS AudioContext is created/resumed INSIDE this user gesture
-    // iOS Safari requires AudioContext creation/resume within a user interaction handler
-    ensureTtsAudioContext();
     unlockAudio();
     isHoldingMicRef.current = true;
     sendOnFinalRef.current = false;

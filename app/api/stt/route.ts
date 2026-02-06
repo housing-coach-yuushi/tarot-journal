@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getKieApiClient } from '@/lib/keiapi/client';
 
 export async function POST(request: NextRequest) {
     try {
+        const apiKey = process.env.DEEPGRAM_API_KEY;
+        if (!apiKey) {
+            return NextResponse.json({ error: 'Deepgram API key missing' }, { status: 500 });
+        }
+
         const formData = await request.formData();
         const audioFile = formData.get('audio') as File;
 
@@ -10,36 +14,42 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Audio file is required' }, { status: 400 });
         }
 
-        // Convert file to base64
-        const buffer = await audioFile.arrayBuffer();
-        const base64Audio = Buffer.from(buffer).toString('base64');
-        const mimeType = audioFile.type || 'audio/mp4';
+        const audioBuffer = await audioFile.arrayBuffer();
+        const contentType = audioFile.type || 'audio/webm';
+        const model = process.env.DEEPGRAM_STT_MODEL || process.env.NEXT_PUBLIC_DEEPGRAM_STT_MODEL || 'nova-2';
+        const language = process.env.DEEPGRAM_STT_LANGUAGE || process.env.NEXT_PUBLIC_DEEPGRAM_STT_LANGUAGE || 'ja';
+        const params = new URLSearchParams({
+            model,
+            language,
+            smart_format: 'true',
+            punctuate: 'true',
+        });
 
-        const client = getKieApiClient();
-
-        console.log(`[API/STT] Starting Speech-to-Text transcription... mimeType=${mimeType}`);
+        console.log(`[API/STT] Starting Deepgram transcription... contentType=${contentType}, bytes=${audioBuffer.byteLength}`);
         const startTime = Date.now();
 
-        let transcript: string;
-        try {
-            transcript = await client.speechToText(base64Audio, mimeType);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            if (message.includes('model name you specified is not supported')) {
-                const fallbackModel = process.env.KEIAPI_STT_FALLBACK_MODEL || 'elevenlabs/scribe-v2';
-                const fallbackInputMode = (process.env.KEIAPI_STT_FALLBACK_INPUT_MODE as 'audio_url' | 'audio' | undefined) || 'audio';
-                console.warn(`[API/STT] Primary model unsupported. Retrying with fallback model: ${fallbackModel}`);
-                transcript = await client.speechToText(base64Audio, mimeType, {
-                    model: fallbackModel,
-                    inputMode: fallbackInputMode,
-                });
-            } else {
-                throw error;
-            }
+        const deepgramResponse = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Token ${apiKey}`,
+                'Content-Type': contentType,
+            },
+            body: audioBuffer,
+        });
+
+        if (!deepgramResponse.ok) {
+            const errorText = await deepgramResponse.text();
+            console.error(`[API/STT] Deepgram error: ${deepgramResponse.status} ${errorText}`);
+            return NextResponse.json(
+                { error: 'Deepgram STT failed', details: errorText },
+                { status: 500 }
+            );
         }
 
+        const data = await deepgramResponse.json();
+        const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim?.() || '';
         const duration = Date.now() - startTime;
-        console.log(`[API/STT] Transcription complete: ${duration}ms, result="${transcript.substring(0, 50)}..."`);
+        console.log(`[API/STT] Deepgram transcription complete: ${duration}ms, result="${transcript.substring(0, 50)}..."`);
 
         return NextResponse.json({ transcript });
 
