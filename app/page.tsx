@@ -179,7 +179,8 @@ export default function Home() {
       if (text.trim()) {
         heldTranscriptRef.current = `${heldTranscriptRef.current} ${text}`.trim();
       }
-      if (sendOnFinalRef.current) {
+      // If user already released mic, always send when transcript arrives.
+      if (sendOnFinalRef.current || !isHoldingMicRef.current) {
         sendOnFinalRef.current = false;
         if (pendingSendTimerRef.current) {
           window.clearTimeout(pendingSendTimerRef.current);
@@ -1005,25 +1006,21 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       window.clearTimeout(pendingSendTimerRef.current);
       pendingSendTimerRef.current = null;
     }
-    if (!isListening) {
-      const toSend = `${heldTranscriptRef.current} ${currentTranscriptRef.current}`.trim();
-      heldTranscriptRef.current = '';
-      if (toSend.trim()) {
-        sendMessage(toSend);
-      }
-      return;
-    }
+    // STT conversion can complete after isListening becomes false.
+    // Keep sendOnFinal true and wait for onEnd callback, then send.
     sendOnFinalRef.current = true;
     stopAndSend();
     pendingSendTimerRef.current = window.setTimeout(() => {
       if (!sendOnFinalRef.current) return;
-      sendOnFinalRef.current = false;
       const toSend = `${heldTranscriptRef.current} ${currentTranscriptRef.current}`.trim();
-      heldTranscriptRef.current = '';
       if (toSend.trim()) {
+        sendOnFinalRef.current = false;
+        heldTranscriptRef.current = '';
         sendMessage(toSend);
+        return;
       }
-    }, 1200);
+      // Keep waiting for onEnd once; slow networks/devices can exceed a few seconds.
+    }, 4500);
   };
 
   const handleMicCancel = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
