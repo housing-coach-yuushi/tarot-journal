@@ -100,6 +100,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
+  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
   const [isShuffleOpen, setIsShuffleOpen] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -230,6 +231,25 @@ export default function Home() {
     currentTranscriptRef.current = currentTranscript;
   }, [currentTranscript]);
 
+  const speakWithBrowser = useCallback((text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'ja-JP';
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      speechRef.current = utterance;
+      setIsSpeaking(true);
+      window.speechSynthesis.speak(utterance);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   // Play TTS for a message (Full)
   const playTTS = useCallback(async (text: string) => {
     if (!ttsEnabled || !audioRef.current) {
@@ -268,25 +288,46 @@ export default function Home() {
             audioRef.current.load();
             setIsSpeaking(true);
             setIsGeneratingAudio(false);
-            await audioRef.current.play();
-            log('音声再生開始');
+            try {
+              await audioRef.current.play();
+              log('音声再生開始');
+            } catch (err) {
+              setIsSpeaking(false);
+              const fallbackOk = speakWithBrowser(text);
+              if (!fallbackOk) {
+                log('音声再生失敗: ' + (err as Error).message);
+              }
+            }
           }
+        } else {
+          setIsGeneratingAudio(false);
         }
       } else {
         const errorData = await response.json().catch(() => ({}));
         log('TTSエラー: ' + (errorData.details || errorData.error || response.status));
+        const fallbackOk = speakWithBrowser(text);
+        if (!fallbackOk) {
+          setIsSpeaking(false);
+        }
         setIsGeneratingAudio(false);
       }
     } catch (error) {
       log('音声再生失敗: ' + (error as Error).message);
+      const fallbackOk = speakWithBrowser(text);
+      if (!fallbackOk) {
+        setIsSpeaking(false);
+      }
       setIsGeneratingAudio(false);
     }
-  }, [ttsEnabled, log]);
+  }, [ttsEnabled, log, speakWithBrowser]);
 
   // Stop TTS
   const stopTTS = useCallback(() => {
     log('音声停止');
     ttsVersionRef.current++; // Invalidate any pending TTS fetches
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -1201,7 +1242,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
               )}
 
               {/* Audio generating indicator */}
-              {isGeneratingAudio && !isSending && (
+              {isGeneratingAudio && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
