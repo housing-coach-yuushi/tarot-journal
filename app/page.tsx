@@ -113,15 +113,10 @@ export default function Home() {
   const checkinTtsAttemptingRef = useRef<boolean>(false);
   const checkinTtsRetryTimerRef = useRef<number | null>(null);
   const tapToStartBusyRef = useRef<boolean>(false);
-  const wsRetryCountRef = useRef<number>(0);
+  const suppressAudioErrorRef = useRef<boolean>(false);
   const touchActiveRef = useRef<boolean>(false);
-  const sendOnFinalRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
-  const isListeningRef = useRef<boolean>(false);
-  const micRetryTimerRef = useRef<number | null>(null);
   const heldTranscriptRef = useRef<string>('');
-  const currentTranscriptRef = useRef<string>('');
-  const pendingSendTimerRef = useRef<number | null>(null);
   // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
 
@@ -180,11 +175,6 @@ export default function Home() {
     lang: 'ja-JP',
     onFinalResult: (text: string) => {
       const finalText = text.trim();
-      sendOnFinalRef.current = false;
-      if (pendingSendTimerRef.current) {
-        window.clearTimeout(pendingSendTimerRef.current);
-        pendingSendTimerRef.current = null;
-      }
       if (!finalText) return;
       heldTranscriptRef.current = finalText;
       sendMessage(finalText);
@@ -228,14 +218,6 @@ export default function Home() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  useEffect(() => {
-    isListeningRef.current = isListening;
-  }, [isListening]);
-
-  useEffect(() => {
-    currentTranscriptRef.current = currentTranscript;
-  }, [currentTranscript]);
 
   const speakWithBrowser = useCallback((text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
@@ -410,12 +392,16 @@ export default function Home() {
       window.speechSynthesis.cancel();
     }
     if (audioRef.current) {
+      suppressAudioErrorRef.current = true;
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
       if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
         URL.revokeObjectURL(audioRef.current.src);
       }
       audioRef.current.src = '';
+      window.setTimeout(() => {
+        suppressAudioErrorRef.current = false;
+      }, 250);
     }
     setIsSpeaking(false);
     setIsGeneratingAudio(false);
@@ -978,7 +964,6 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       return;
     }
     if (isHoldingMicRef.current) return;
-    wsRetryCountRef.current = 0;
     log('押した');
 
     if (!sttSupported) {
@@ -999,12 +984,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     stopTTS();
     unlockAudio();
     isHoldingMicRef.current = true;
-    sendOnFinalRef.current = false;
     heldTranscriptRef.current = '';
-    if (pendingSendTimerRef.current) {
-      window.clearTimeout(pendingSendTimerRef.current);
-      pendingSendTimerRef.current = null;
-    }
     startListening();
   };
 
@@ -1021,48 +1001,17 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       return;
     }
     log('離した');
-    wsRetryCountRef.current = 0;
     isHoldingMicRef.current = false;
-    if (micRetryTimerRef.current) {
-      window.clearTimeout(micRetryTimerRef.current);
-      micRetryTimerRef.current = null;
-    }
-    if (pendingSendTimerRef.current) {
-      window.clearTimeout(pendingSendTimerRef.current);
-      pendingSendTimerRef.current = null;
-    }
-    // STT conversion can complete after isListening becomes false.
-    // Keep sendOnFinal true and wait for onEnd callback, then send.
-    sendOnFinalRef.current = true;
+
+    // In native STT mode, stopAndSend dispatches the recognized text via onFinalResult.
     stopAndSend();
-    pendingSendTimerRef.current = window.setTimeout(() => {
-      if (!sendOnFinalRef.current) return;
-      const toSend = `${heldTranscriptRef.current} ${currentTranscriptRef.current}`.trim();
-      if (toSend.trim()) {
-        sendOnFinalRef.current = false;
-        heldTranscriptRef.current = '';
-        sendMessage(toSend);
-        return;
-      }
-      // Keep waiting for onEnd once; slow networks/devices can exceed a few seconds.
-    }, 4500);
   };
 
   const handleMicCancel = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
     if (!isListening) return;
-    wsRetryCountRef.current = 0;
-    sendOnFinalRef.current = false;
     isHoldingMicRef.current = false;
     heldTranscriptRef.current = '';
-    if (micRetryTimerRef.current) {
-      window.clearTimeout(micRetryTimerRef.current);
-      micRetryTimerRef.current = null;
-    }
-    if (pendingSendTimerRef.current) {
-      window.clearTimeout(pendingSendTimerRef.current);
-      pendingSendTimerRef.current = null;
-    }
     cancel();
   };
 
@@ -1648,6 +1597,10 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
           }
         }}
         onError={() => {
+          const src = audioRef.current?.src || '';
+          if (suppressAudioErrorRef.current || !src) {
+            return;
+          }
           log('音声要素エラー');
           setIsSpeaking(false);
           if (audioRef.current?.src && audioRef.current.src.startsWith('blob:')) {
