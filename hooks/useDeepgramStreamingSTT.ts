@@ -12,6 +12,7 @@ type SttErrorCode = 'permission' | 'no-mic' | 'device-busy' | 'token' | 'audio-c
 const DEFAULT_SAMPLE_RATE = 16000;
 const DEFAULT_MODEL = 'nova-2';
 const DEFAULT_LANGUAGE = 'ja';
+const WS_CONNECT_TIMEOUT_MS = 6000;
 
 function downsampleBuffer(input: Float32Array, inputSampleRate: number, outputSampleRate: number): Float32Array {
   if (outputSampleRate === inputSampleRate) return input;
@@ -300,9 +301,26 @@ registerProcessor('pcm-sender', PcmSender);
       const ws = new WebSocket(`wss://api.deepgram.com/v1/listen?${params.toString()}`, ['token', token]);
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
+      let wsOpen = false;
+      let wsErrorHandled = false;
+      const connectTimeout = window.setTimeout(() => {
+        if (attemptId !== startAttemptRef.current) return;
+        if (ws.readyState === WebSocket.CONNECTING) {
+          wsErrorHandled = true;
+          console.warn('[Deepgram STT] websocket connect timeout');
+          setDebugStatus('接続タイムアウト');
+          onErrorRef.current?.('ws');
+          setIsListening(false);
+          cleanupAudio();
+          cleanupSocket();
+          isStartingRef.current = false;
+        }
+      }, WS_CONNECT_TIMEOUT_MS);
 
       ws.onopen = () => {
         if (attemptId !== startAttemptRef.current) return;
+        window.clearTimeout(connectTimeout);
+        wsOpen = true;
         wsReadyRef.current = true;
         // Flush buffered audio chunks
         const buffered = pendingChunksRef.current;
@@ -343,6 +361,8 @@ registerProcessor('pcm-sender', PcmSender);
 
       ws.onerror = (event) => {
         if (attemptId !== startAttemptRef.current) return;
+        window.clearTimeout(connectTimeout);
+        wsErrorHandled = true;
         console.warn('[Deepgram STT] websocket error', event);
         setDebugStatus('接続エラー');
         onErrorRef.current?.('ws');
@@ -352,8 +372,19 @@ registerProcessor('pcm-sender', PcmSender);
         isStartingRef.current = false;
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (attemptId !== startAttemptRef.current) return;
+        window.clearTimeout(connectTimeout);
+        if (!wsErrorHandled && !isFinalizingRef.current && !wsOpen) {
+          // Deepgram may close during handshake for auth/parameter issues.
+          if (event.code === 1008 || event.code === 4401 || event.code === 4001) {
+            setDebugStatus('トークン取得エラー');
+            onErrorRef.current?.('token');
+          } else {
+            setDebugStatus('接続エラー');
+            onErrorRef.current?.('ws');
+          }
+        }
         wsReadyRef.current = false;
         // Only set not-listening if audio is also stopped
         // (avoids premature stop if WS reconnects)

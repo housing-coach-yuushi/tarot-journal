@@ -244,6 +244,8 @@ export default function Home() {
       pushNotice('error', '音声サーバーへの接続に失敗しました。時間をおいて再試行してください。', 6000);
     } else if (debugStatus === '接続エラー') {
       pushNotice('error', '音声認識の接続が不安定です。再度お試しください。', 5000);
+    } else if (debugStatus === '接続タイムアウト') {
+      pushNotice('error', '音声認識サーバーへの接続がタイムアウトしました。通信環境をご確認ください。', 6000);
     } else if (debugStatus === '音声初期化エラー') {
       pushNotice('error', '音声の初期化に失敗しました。ページ再読み込みをお試しください。', 6000);
     } else if (debugStatus === '変換エラー') {
