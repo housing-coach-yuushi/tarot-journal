@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface UseDeepgramStreamingSTTOptions {
   onEnd?: (transcript: string) => void;
-  onError?: (error: string) => void;
+  onError?: (error: string, detail?: string) => void;
 }
 
 type SttErrorCode = 'permission' | 'no-mic' | 'device-busy' | 'token' | 'ws' | 'unknown';
@@ -15,9 +15,22 @@ const MIME_TYPE_CANDIDATES = [
   'audio/mp4',
 ];
 
+function isLikelyIOSDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const ua = window.navigator.userAgent || '';
+  const platform = window.navigator.platform || '';
+  const maxTouchPoints = window.navigator.maxTouchPoints || 0;
+  const isIOS = /iPhone|iPad|iPod/i.test(ua) || /iPhone|iPad|iPod/i.test(platform);
+  const isIPadOSDesktopUA = platform === 'MacIntel' && maxTouchPoints > 1;
+  return isIOS || isIPadOSDesktopUA;
+}
+
 function getPreferredMimeType(): string | undefined {
   if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined') return undefined;
-  for (const mime of MIME_TYPE_CANDIDATES) {
+  const candidates = isLikelyIOSDevice()
+    ? ['audio/mp4', ...MIME_TYPE_CANDIDATES]
+    : MIME_TYPE_CANDIDATES;
+  for (const mime of candidates) {
     if (MediaRecorder.isTypeSupported(mime)) return mime;
   }
   return undefined;
@@ -34,6 +47,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const selectedMimeTypeRef = useRef<string>('');
+  const isLikelyIOSRef = useRef<boolean>(false);
   const shouldSendOnStopRef = useRef(false);
   const onEndRef = useRef(onEnd);
   const onErrorRef = useRef(onError);
@@ -48,6 +63,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    isLikelyIOSRef.current = isLikelyIOSDevice();
     const supported = !!(
       navigator.mediaDevices
       && typeof navigator.mediaDevices.getUserMedia === 'function'
@@ -68,9 +84,10 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       mediaStreamRef.current = null;
     }
     chunksRef.current = [];
+    selectedMimeTypeRef.current = '';
   }, []);
 
-  const transcribeBlob = useCallback(async (blob: Blob) => {
+  const transcribeBlob = useCallback(async (blob: Blob, mimeTypeHint?: string) => {
     if (blob.size < 1200) {
       setDebugStatus('音声が短すぎます');
       return;
@@ -78,9 +95,19 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
 
     setDebugStatus('変換中...');
     try {
+      const normalizedMimeType = (mimeTypeHint || blob.type || '').toLowerCase();
+      const normalizedBlob = normalizedMimeType && blob.type !== normalizedMimeType
+        ? new Blob([blob], { type: normalizedMimeType })
+        : blob;
+      const ext = normalizedMimeType.includes('mp4')
+        ? 'm4a'
+        : normalizedMimeType.includes('wav')
+          ? 'wav'
+          : normalizedMimeType.includes('ogg')
+            ? 'ogg'
+            : 'webm';
       const formData = new FormData();
-      const ext = blob.type.includes('mp4') ? 'm4a' : 'webm';
-      formData.append('audio', blob, `recording.${ext}`);
+      formData.append('audio', normalizedBlob, `recording.${ext}`);
 
       const response = await fetch('/api/stt', {
         method: 'POST',
@@ -89,25 +116,32 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
 
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        const lower = text.toLowerCase();
+        let detail = text;
+        try {
+          const parsed = JSON.parse(text) as { error?: string; details?: string; deepgramStatus?: number };
+          detail = parsed.details || parsed.error || text;
+        } catch {
+          // ignore parse errors
+        }
+        const lower = detail.toLowerCase();
 
         if (lower.includes('invalid_auth') || lower.includes('invalid credentials') || response.status === 401 || response.status === 403) {
           setDebugStatus('トークン取得エラー');
-          onErrorRef.current?.('token');
+          onErrorRef.current?.('token', detail.slice(0, 200));
           return;
         }
         if (lower.includes('too many requests') || response.status === 429) {
           setDebugStatus('接続タイムアウト');
-          onErrorRef.current?.('ws');
+          onErrorRef.current?.('ws', detail.slice(0, 200));
           return;
         }
         if (lower.includes('unsupported') || lower.includes('codec') || lower.includes('content-type') || lower.includes('media') || response.status === 415) {
           setDebugStatus('音声初期化エラー');
-          onErrorRef.current?.('ws');
+          onErrorRef.current?.('ws', detail.slice(0, 200));
           return;
         }
 
-        throw new Error(text || `stt ${response.status}`);
+        throw new Error(detail || `stt ${response.status}`);
       }
 
       const data = await response.json();
@@ -124,7 +158,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     } catch (error) {
       console.warn('[Deepgram STT] transcribe failed', error);
       setDebugStatus('変換エラー');
-      onErrorRef.current?.('ws');
+      const detail = error instanceof Error ? error.message : String(error);
+      onErrorRef.current?.('ws', detail.slice(0, 200));
     }
   }, []);
 
@@ -151,6 +186,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       });
 
       const mimeType = getPreferredMimeType();
+      selectedMimeTypeRef.current = mimeType || (isLikelyIOSRef.current ? 'audio/mp4' : 'audio/webm');
       const recorder = mimeType
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
@@ -161,6 +197,9 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
+        }
+        if (event.data.type) {
+          selectedMimeTypeRef.current = event.data.type;
         }
       };
 
@@ -174,7 +213,11 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       recorder.onstop = async () => {
         const shouldSend = shouldSendOnStopRef.current;
         const recordedChunks = chunksRef.current.slice();
-        const recordedMimeType = recorder.mimeType || 'audio/webm';
+        const recordedMimeType = (
+          recorder.mimeType
+          || selectedMimeTypeRef.current
+          || (isLikelyIOSRef.current ? 'audio/mp4' : 'audio/webm')
+        ).toLowerCase();
 
         cleanupMedia();
         setIsListening(false);
@@ -184,7 +227,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
           return;
         }
 
-        await transcribeBlob(new Blob(recordedChunks, { type: recordedMimeType }));
+        await transcribeBlob(new Blob(recordedChunks, { type: recordedMimeType }), recordedMimeType);
       };
 
       recorder.start(250);

@@ -199,8 +199,8 @@ export default function Home() {
         }, 200);
       }
     },
-    onError: (errorType: string) => {
-      log(`[STT] エラー: ${errorType}`);
+    onError: (errorType: string, detail?: string) => {
+      log(`[STT] エラー: ${errorType}${detail ? ` (${detail.slice(0, 120)})` : ''}`);
       if (!isHoldingMicRef.current) return;
 
       // Retry only for transient websocket errors while still holding.
@@ -340,13 +340,29 @@ export default function Home() {
     if (audio.src && audio.src.startsWith('blob:')) {
       URL.revokeObjectURL(audio.src);
     }
+    audio.setAttribute('playsinline', 'true');
     audio.src = nextUrl;
     audio.currentTime = 0;
     setIsSpeaking(true);
     setIsGeneratingAudio(false);
-    await audio.play();
+    try {
+      await audio.play();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const lowered = message.toLowerCase();
+      if (lowered.includes('notallowed') || lowered.includes('gesture') || lowered.includes('interact')) {
+        const unlocked = await unlockAudio();
+        if (unlocked) {
+          await audio.play();
+        } else {
+          throw new Error(`play blocked: ${message}`);
+        }
+      } else {
+        throw error;
+      }
+    }
     return true;
-  }, [stopDeepgramTTS]);
+  }, [stopDeepgramTTS, unlockAudio]);
 
   // Play TTS for a message (server-side Deepgram REST)
   const playTTS = useCallback(async (text: string) => {
@@ -367,7 +383,14 @@ export default function Home() {
       const message = (error as Error).message || 'unknown';
       const shortMessage = message.length > 90 ? `${message.slice(0, 90)}...` : message;
       log('音声再生失敗: ' + shortMessage);
-      if (message.includes('AudioContext') || message.includes('未初期化')) {
+      const lower = message.toLowerCase();
+      if (
+        message.includes('AudioContext')
+        || message.includes('未初期化')
+        || lower.includes('notallowed')
+        || lower.includes('gesture')
+        || lower.includes('play blocked')
+      ) {
         pushNotice('error', '音声再生を開始できませんでした。画面を一度タップしてから再試行してください。', 6000);
       }
       setIsGeneratingAudio(false);

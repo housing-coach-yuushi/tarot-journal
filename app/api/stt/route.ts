@@ -16,12 +16,18 @@ export async function POST(request: NextRequest) {
 
         const audioBuffer = await audioFile.arrayBuffer();
         const rawContentType = (audioFile.type || '').toLowerCase();
+        const lowerFileName = (audioFile.name || '').toLowerCase();
         let contentType = 'application/octet-stream';
         if (rawContentType.startsWith('audio/webm')) contentType = 'audio/webm';
         else if (rawContentType.startsWith('audio/mp4') || rawContentType.startsWith('audio/m4a')) contentType = 'audio/mp4';
         else if (rawContentType.startsWith('audio/wav') || rawContentType.startsWith('audio/x-wav')) contentType = 'audio/wav';
         else if (rawContentType.startsWith('audio/ogg')) contentType = 'audio/ogg';
         else if (rawContentType.startsWith('audio/mpeg') || rawContentType.startsWith('audio/mp3')) contentType = 'audio/mpeg';
+        else if (lowerFileName.endsWith('.m4a') || lowerFileName.endsWith('.mp4')) contentType = 'audio/mp4';
+        else if (lowerFileName.endsWith('.webm')) contentType = 'audio/webm';
+        else if (lowerFileName.endsWith('.wav')) contentType = 'audio/wav';
+        else if (lowerFileName.endsWith('.ogg') || lowerFileName.endsWith('.oga')) contentType = 'audio/ogg';
+        else if (lowerFileName.endsWith('.mp3')) contentType = 'audio/mpeg';
         const model = process.env.DEEPGRAM_STT_MODEL || process.env.NEXT_PUBLIC_DEEPGRAM_STT_MODEL || 'nova-2';
         const language = process.env.DEEPGRAM_STT_LANGUAGE || process.env.NEXT_PUBLIC_DEEPGRAM_STT_LANGUAGE || 'ja';
         const params = new URLSearchParams({
@@ -31,7 +37,7 @@ export async function POST(request: NextRequest) {
             punctuate: 'true',
         });
 
-        console.log(`[API/STT] Starting Deepgram transcription... rawType=${rawContentType || 'n/a'}, normalizedType=${contentType}, bytes=${audioBuffer.byteLength}`);
+        console.log(`[API/STT] Starting Deepgram transcription... rawType=${rawContentType || 'n/a'}, fileName=${lowerFileName || 'n/a'}, normalizedType=${contentType}, bytes=${audioBuffer.byteLength}`);
         const startTime = Date.now();
 
         const deepgramResponse = await fetch(`https://api.deepgram.com/v1/listen?${params.toString()}`, {
