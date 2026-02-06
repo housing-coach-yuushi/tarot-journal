@@ -110,6 +110,8 @@ export default function Home() {
   const touchActiveRef = useRef<boolean>(false);
   const sendOnFinalRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
+  const isListeningRef = useRef<boolean>(false);
+  const micRetryTimerRef = useRef<number | null>(null);
   // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
 
@@ -198,6 +200,10 @@ export default function Home() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
 
   // Play TTS for a message (Full)
   const playTTS = useCallback(async (text: string) => {
@@ -791,6 +797,14 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     isHoldingMicRef.current = true;
     sendOnFinalRef.current = false;
     startListening();
+    if (micRetryTimerRef.current) {
+      window.clearTimeout(micRetryTimerRef.current);
+    }
+    micRetryTimerRef.current = window.setTimeout(() => {
+      if (isHoldingMicRef.current && !isListeningRef.current) {
+        startListening();
+      }
+    }, 600);
   };
 
   // Push-to-talk: send on release
@@ -805,6 +819,10 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     log('離した');
     if (!isListening) return;
     isHoldingMicRef.current = false;
+    if (micRetryTimerRef.current) {
+      window.clearTimeout(micRetryTimerRef.current);
+      micRetryTimerRef.current = null;
+    }
     sendOnFinalRef.current = true;
     stopAndSend();
   };
@@ -814,6 +832,10 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     if (!isListening) return;
     sendOnFinalRef.current = false;
     isHoldingMicRef.current = false;
+    if (micRetryTimerRef.current) {
+      window.clearTimeout(micRetryTimerRef.current);
+      micRetryTimerRef.current = null;
+    }
     cancel();
   };
 
