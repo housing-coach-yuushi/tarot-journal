@@ -392,13 +392,17 @@ export default function Home() {
       window.speechSynthesis.cancel();
     }
     if (audioRef.current) {
+      const audio = audioRef.current;
       suppressAudioErrorRef.current = true;
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
-        URL.revokeObjectURL(audioRef.current.src);
+      audio.pause();
+      audio.currentTime = 0;
+      const currentSrc = audio.currentSrc || audio.getAttribute('src') || '';
+      if (currentSrc.startsWith('blob:')) {
+        URL.revokeObjectURL(currentSrc);
       }
-      audioRef.current.src = '';
+      // Avoid `src = ''` because some browsers resolve it to the page URL and emit a media error.
+      audio.removeAttribute('src');
+      audio.load();
       window.setTimeout(() => {
         suppressAudioErrorRef.current = false;
       }, 250);
@@ -1591,22 +1595,36 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
         ref={audioRef}
         onEnded={() => {
           setIsSpeaking(false);
-          if (audioRef.current?.src && audioRef.current.src.startsWith('blob:')) {
-            URL.revokeObjectURL(audioRef.current.src);
-            audioRef.current.src = '';
+          const audio = audioRef.current;
+          if (!audio) return;
+          const currentSrc = audio.currentSrc || audio.getAttribute('src') || '';
+          if (currentSrc.startsWith('blob:')) {
+            URL.revokeObjectURL(currentSrc);
           }
+          audio.removeAttribute('src');
+          audio.load();
         }}
         onError={() => {
-          const src = audioRef.current?.src || '';
-          if (suppressAudioErrorRef.current || !src) {
+          const audio = audioRef.current;
+          if (!audio) {
+            return;
+          }
+          const currentSrc = audio.currentSrc || audio.getAttribute('src') || '';
+          const mediaErrorCode = audio.error?.code;
+          if (
+            suppressAudioErrorRef.current
+            || !currentSrc
+            || mediaErrorCode === MediaError.MEDIA_ERR_ABORTED
+          ) {
             return;
           }
           log('音声要素エラー');
           setIsSpeaking(false);
-          if (audioRef.current?.src && audioRef.current.src.startsWith('blob:')) {
-            URL.revokeObjectURL(audioRef.current.src);
-            audioRef.current.src = '';
+          if (currentSrc.startsWith('blob:')) {
+            URL.revokeObjectURL(currentSrc);
           }
+          audio.removeAttribute('src');
+          audio.load();
         }}
         style={{ display: 'none' }}
       />

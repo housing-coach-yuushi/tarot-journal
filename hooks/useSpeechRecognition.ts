@@ -30,18 +30,98 @@ interface SpeechRecognitionAlternative {
   confidence: number;
 }
 
+interface SpeechRecognitionErrorEvent {
+  error?: string;
+}
+
+interface SpeechRecognitionInstance {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onaudiostart: (() => void) | null;
+  onspeechstart: (() => void) | null;
+  onspeechend: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const recognitionWindow = window as Window & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return recognitionWindow.SpeechRecognition || recognitionWindow.webkitSpeechRecognition;
+}
+
 export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) {
   const { lang = 'ja-JP', onFinalResult } = options;
 
   const [isListening, setIsListening] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState('');
-  const [isSupported, setIsSupported] = useState(false);
+  const [isSupported] = useState(() => !!getSpeechRecognitionConstructor());
   const [debugStatus, setDebugStatus] = useState('init');
 
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const transcriptRef = useRef<string>('');
+  const baseTranscriptRef = useRef<string>('');
+  const sessionTranscriptRef = useRef<string>('');
   const manualStopRef = useRef<boolean>(false);
+  const keepListeningRef = useRef<boolean>(false);
+  const restartTimerRef = useRef<number | null>(null);
+  const restartAttemptsRef = useRef<number>(0);
   const onFinalResultRef = useRef(onFinalResult);
+
+  const joinTranscript = useCallback((base: string, session: string): string => {
+    return `${base} ${session}`.replace(/\s+/g, ' ').trim();
+  }, []);
+
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current !== null) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+  }, []);
+
+  const commitSessionTranscript = useCallback(() => {
+    const sessionText = sessionTranscriptRef.current.trim();
+    if (!sessionText) return;
+    const merged = joinTranscript(baseTranscriptRef.current, sessionText);
+    baseTranscriptRef.current = merged;
+    transcriptRef.current = merged;
+    setCurrentTranscript(merged);
+    sessionTranscriptRef.current = '';
+  }, [joinTranscript]);
+
+  const queueRestart = useCallback((delayMs: number) => {
+    clearRestartTimer();
+    const scheduleAttempt = (waitMs: number) => {
+      restartTimerRef.current = window.setTimeout(() => {
+        if (!keepListeningRef.current || manualStopRef.current) return;
+        const recognition = recognitionRef.current;
+        if (!recognition) return;
+        try {
+          recognition.start();
+          restartAttemptsRef.current = 0;
+          setIsListening(true);
+          setDebugStatus('録音中');
+        } catch (error) {
+          restartAttemptsRef.current += 1;
+          const nextWaitMs = Math.min(900, 120 + restartAttemptsRef.current * 140);
+          console.warn('[STT] restart failed, retrying...', error);
+          setDebugStatus('録音継続中');
+          scheduleAttempt(nextWaitMs);
+        }
+      }, waitMs);
+    };
+    scheduleAttempt(delayMs);
+  }, [clearRestartTimer]);
 
   // Keep callback ref updated
   useEffect(() => {
@@ -51,9 +131,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   // Check browser support and setup
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const SpeechRecognition =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      setIsSupported(!!SpeechRecognition);
+      const SpeechRecognition = getSpeechRecognitionConstructor();
 
       if (SpeechRecognition) {
         const recognition = new SpeechRecognition();
@@ -62,16 +140,17 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
         recognition.interimResults = true;
 
         recognition.onresult = (event: SpeechRecognitionEvent) => {
-          let fullTranscript = '';
+          let sessionTranscript = '';
 
           // Collect all results
           for (let i = 0; i < event.results.length; i++) {
-            fullTranscript += event.results[i][0].transcript;
+            sessionTranscript += event.results[i][0].transcript;
           }
 
-          // console.log('[STT] Result:', fullTranscript);
-          transcriptRef.current = fullTranscript;
-          setCurrentTranscript(fullTranscript);
+          sessionTranscriptRef.current = sessionTranscript.trim();
+          const mergedTranscript = joinTranscript(baseTranscriptRef.current, sessionTranscriptRef.current);
+          transcriptRef.current = mergedTranscript;
+          setCurrentTranscript(mergedTranscript);
         };
 
         recognition.onaudiostart = () => {
@@ -91,58 +170,69 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
 
         recognition.onend = () => {
           console.log('[STT] onend - manualStop:', manualStopRef.current);
+          if (!manualStopRef.current && keepListeningRef.current) {
+            commitSessionTranscript();
+            setDebugStatus('録音継続中');
+            queueRestart(140);
+            return;
+          }
+          clearRestartTimer();
+          keepListeningRef.current = false;
           setDebugStatus('待機中');
           setIsListening(false);
-
-          // NOTE: Do NOT clear transcriptRef here. 
-          // If auto-stop happens (network/silence), we want to keep the text 
-          // so stopAndSend() can still retrieve it when user releases button.
-
-          // Only trigger onFinalResult if it was a manual stop controlled by logic
-          // (Actually, stopAndSend handles the sending callback directly, so we might not need this here at all
-          //  unless we want onend to trigger send for auto-stops?)
-          // Current logic: stopAndSend calls onFinalResult. onend does nothing but cleanup state.
           manualStopRef.current = false;
         };
 
-        recognition.onerror = (event: any) => {
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
           console.error('[STT] Error:', event.error, event);
+          const errorCode = String(event.error || 'unknown');
+          if (
+            keepListeningRef.current
+            && !manualStopRef.current
+            && (errorCode === 'aborted' || errorCode === 'no-speech')
+          ) {
+            setDebugStatus('録音継続中');
+            return;
+          }
           setDebugStatus('エラー: ' + event.error);
+          keepListeningRef.current = false;
+          clearRestartTimer();
           setIsListening(false);
-          transcriptRef.current = '';
           manualStopRef.current = false;
         };
 
         recognitionRef.current = recognition;
       }
     }
-  }, [lang]);  // onFinalResult is handled via ref
+    return () => {
+      clearRestartTimer();
+      keepListeningRef.current = false;
+    };
+  }, [lang, clearRestartTimer, commitSessionTranscript, joinTranscript, queueRestart]);  // onFinalResult is handled via ref
 
   // Start listening (press down)
   const startListening = useCallback(() => {
     // Reset state first
     transcriptRef.current = '';
+    baseTranscriptRef.current = '';
+    sessionTranscriptRef.current = '';
     setCurrentTranscript('');
     manualStopRef.current = false;
+    keepListeningRef.current = true;
+    restartAttemptsRef.current = 0;
+    clearRestartTimer();
 
     // Set listening immediately for UI feedback (red button)
     setIsListening(true);
     setDebugStatus('録音中');
 
     if (recognitionRef.current) {
-      // Force abort current session if any to ensure clean state
-      try {
-        recognitionRef.current.abort();
-      } catch (e) {
-        // ignore
-      }
-
       // Start immediately
       try {
         console.log('[STT] Starting recognition...');
         recognitionRef.current.start();
         console.log('[STT] Recognition started');
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('[STT] Failed to start immediately:', error);
 
         // If immediately starting fails (usually because it's still closing), 
@@ -150,17 +240,24 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
         setTimeout(() => {
           try {
             console.log('[STT] Retrying start...');
-            recognitionRef.current.start();
+            recognitionRef.current?.start();
             console.log('[STT] Retry successful');
-          } catch (retryError: any) {
+          } catch (retryError: unknown) {
             console.error('[STT] Retry failed:', retryError);
-            setDebugStatus('エラー: ' + retryError.message);
+            if (keepListeningRef.current && !manualStopRef.current) {
+              setDebugStatus('録音継続中');
+              queueRestart(180);
+              return;
+            }
+            const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+            setDebugStatus('エラー: ' + retryMessage);
+            keepListeningRef.current = false;
             setIsListening(false);
           }
         }, 100);
       }
     }
-  }, []);
+  }, [clearRestartTimer, queueRestart]);
 
   // Stop listening and send (release)
   const stopAndSend = useCallback(() => {
@@ -168,7 +265,10 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     setDebugStatus('停止中...');
 
     // Set manual stop flag BEFORE stopping recognition
+    keepListeningRef.current = false;
     manualStopRef.current = true;
+    clearRestartTimer();
+    commitSessionTranscript();
 
     if (recognitionRef.current) {
       try {
@@ -195,18 +295,24 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
 
     // Reset
     transcriptRef.current = '';
+    baseTranscriptRef.current = '';
+    sessionTranscriptRef.current = '';
     setCurrentTranscript('');
-  }, []);
+  }, [clearRestartTimer, commitSessionTranscript]);
 
   // Cancel without sending
   const cancel = useCallback(() => {
+    keepListeningRef.current = false;
+    clearRestartTimer();
     if (recognitionRef.current && isListening) {
       manualStopRef.current = false;  // Don't send
       recognitionRef.current.stop();
     }
     transcriptRef.current = '';
+    baseTranscriptRef.current = '';
+    sessionTranscriptRef.current = '';
     setCurrentTranscript('');
-  }, [isListening]);
+  }, [clearRestartTimer, isListening]);
 
   return {
     isListening,
