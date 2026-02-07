@@ -114,6 +114,7 @@ export default function Home() {
   const checkinTtsRetryTimerRef = useRef<number | null>(null);
   const tapToStartBusyRef = useRef<boolean>(false);
   const suppressAudioErrorRef = useRef<boolean>(false);
+  const audioElementPrimedRef = useRef<boolean>(false);
   const touchActiveRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
   const heldTranscriptRef = useRef<string>('');
@@ -244,20 +245,48 @@ export default function Home() {
 
   const unlockAudio = useCallback(async (): Promise<boolean> => {
     try {
-      if (audioUnlocked) return true;
+      if (audioUnlocked && audioElementPrimedRef.current) return true;
       if (typeof window === 'undefined') return false;
+      const unlockSrc = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
 
-      // Use a temporary element for unlock so we never overwrite the active TTS source.
-      const unlocker = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==');
-      unlocker.volume = 0.001;
-      unlocker.muted = false;
-      unlocker.preload = 'auto';
-      unlocker.setAttribute('playsinline', 'true');
-      const p = unlocker.play();
-      if (p) {
-        await p;
-        unlocker.pause();
-        unlocker.currentTime = 0;
+      // Prime the actual playback element to satisfy strict mobile autoplay policies.
+      const targetAudio = audioRef.current;
+      if (targetAudio && !isSpeaking && !isGeneratingAudio) {
+        const previousSrc = targetAudio.currentSrc || targetAudio.getAttribute('src') || '';
+        suppressAudioErrorRef.current = true;
+        targetAudio.setAttribute('playsinline', 'true');
+        targetAudio.preload = 'auto';
+        targetAudio.muted = false;
+        targetAudio.volume = 0.001;
+        targetAudio.src = unlockSrc;
+        const p = targetAudio.play();
+        if (p) {
+          await p;
+          targetAudio.pause();
+          targetAudio.currentTime = 0;
+        }
+        if (previousSrc.startsWith('blob:')) {
+          targetAudio.src = previousSrc;
+        } else {
+          targetAudio.removeAttribute('src');
+          targetAudio.load();
+        }
+        window.setTimeout(() => {
+          suppressAudioErrorRef.current = false;
+        }, 180);
+        audioElementPrimedRef.current = true;
+      } else {
+        const unlocker = new Audio(unlockSrc);
+        unlocker.volume = 0.001;
+        unlocker.muted = false;
+        unlocker.preload = 'auto';
+        unlocker.setAttribute('playsinline', 'true');
+        const p = unlocker.play();
+        if (p) {
+          await p;
+          unlocker.pause();
+          unlocker.currentTime = 0;
+        }
       }
       setAudioUnlocked(true);
       log('オーディオアンロック完了');
@@ -268,7 +297,7 @@ export default function Home() {
       console.warn('[audio] unlock failed', e);
       return false;
     }
-  }, [audioUnlocked, log]);
+  }, [audioUnlocked, isGeneratingAudio, isSpeaking, log]);
 
   const playDeepgramTTS = useCallback(async (text: string, version: number, voiceIdOverride?: string) => {
     if (typeof window === 'undefined') return false;
@@ -354,16 +383,24 @@ export default function Home() {
       return false;
     } catch (error) {
       const message = (error as Error).message || 'unknown';
-      const shortMessage = message.length > 90 ? `${message.slice(0, 90)}...` : message;
-      log('音声再生失敗: ' + shortMessage);
       const lower = message.toLowerCase();
-      if (
+      const isPlaybackBlocked =
         message.includes('AudioContext')
         || message.includes('未初期化')
         || lower.includes('notallowed')
         || lower.includes('gesture')
-        || lower.includes('play blocked')
-      ) {
+        || lower.includes('play blocked');
+
+      if (isPlaybackBlocked && checkinTtsAttemptingRef.current) {
+        setIsGeneratingAudio(false);
+        setIsSpeaking(false);
+        log('チェックイン音声はユーザー操作待ち');
+        return false;
+      }
+
+      const shortMessage = message.length > 90 ? `${message.slice(0, 90)}...` : message;
+      log('音声再生失敗: ' + shortMessage);
+      if (isPlaybackBlocked) {
         pushNotice('error', '音声再生を開始できませんでした。画面を一度タップしてから再試行してください。', 6000);
       }
       setIsGeneratingAudio(false);
