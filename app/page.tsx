@@ -612,6 +612,8 @@ export default function Home() {
   useEffect(() => {
     if (isLoading || !isReady) return;
     if (hasHistoryRef.current) return;
+    if (messages.length > 2) return;
+    if (messages.some(message => message.role === 'user' || message.role === 'tarot')) return;
     if (typeof window !== 'undefined' && window.sessionStorage.getItem(CHECKIN_TTS_SESSION_KEY) === '1') {
       checkinTtsHandledRef.current = true;
       return;
@@ -674,6 +676,9 @@ export default function Home() {
     setSendError(null);
     lastSendTextRef.current = text;
     checkinTtsHandledRef.current = true;
+    checkinTtsPlayedRef.current = true;
+    checkinTtsAttemptingRef.current = false;
+    checkinTtsAttemptedMessageIdRef.current = '__disabled__';
     if (typeof window !== 'undefined') {
       window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
     }
@@ -1025,6 +1030,15 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     }
 
     if (isListening) return;
+
+    // Once user starts talking, never allow checkin auto-TTS to run again in this session.
+    checkinTtsHandledRef.current = true;
+    checkinTtsPlayedRef.current = true;
+    checkinTtsAttemptingRef.current = false;
+    checkinTtsAttemptedMessageIdRef.current = '__disabled__';
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
+    }
 
     // Prioritize microphone: Abort any pending message requests
     if (abortControllerRef.current) {
