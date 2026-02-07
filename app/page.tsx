@@ -54,6 +54,8 @@ interface BootstrapState {
   }>;
 }
 
+const CHECKIN_TTS_SESSION_KEY = 'tarot-journal:checkin-tts-handled';
+
 // Generate or retrieve unique user ID
 function getUserId(): string {
   if (typeof window === 'undefined') return 'default';
@@ -110,8 +112,10 @@ export default function Home() {
   const ttsEnabledRef = useRef<boolean>(ttsEnabled);
   const hasHistoryRef = useRef<boolean>(false);
   const checkinTtsPlayedRef = useRef<boolean>(false);
+  const checkinTtsHandledRef = useRef<boolean>(false);
   const checkinTtsAttemptingRef = useRef<boolean>(false);
   const checkinTtsRetryTimerRef = useRef<number | null>(null);
+  const checkinTtsAttemptedMessageIdRef = useRef<string | null>(null);
   const tapToStartBusyRef = useRef<boolean>(false);
   const suppressAudioErrorRef = useRef<boolean>(false);
   const audioElementPrimedRef = useRef<boolean>(false);
@@ -459,7 +463,9 @@ export default function Home() {
         setIsPreparing(true);
         setInitError(null);
         checkinTtsPlayedRef.current = false;
+        checkinTtsHandledRef.current = false;
         checkinTtsAttemptingRef.current = false;
+        checkinTtsAttemptedMessageIdRef.current = null;
         if (checkinTtsRetryTimerRef.current) {
           window.clearTimeout(checkinTtsRetryTimerRef.current);
           checkinTtsRetryTimerRef.current = null;
@@ -606,6 +612,11 @@ export default function Home() {
   useEffect(() => {
     if (isLoading || !isReady) return;
     if (hasHistoryRef.current) return;
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem(CHECKIN_TTS_SESSION_KEY) === '1') {
+      checkinTtsHandledRef.current = true;
+      return;
+    }
+    if (checkinTtsHandledRef.current) return;
     if (checkinTtsPlayedRef.current) return;
     if (checkinTtsAttemptingRef.current) return;
     if (!ttsEnabled) return;
@@ -614,36 +625,33 @@ export default function Home() {
     if (!firstMessage || firstMessage.role !== 'assistant' || !firstMessage.id.startsWith('checkin-')) {
       return;
     }
+    if (checkinTtsAttemptedMessageIdRef.current === firstMessage.id) {
+      return;
+    }
     const checkinText = firstMessage.content.trim();
     if (!checkinText) return;
+    checkinTtsAttemptedMessageIdRef.current = firstMessage.id;
+    checkinTtsHandledRef.current = true;
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
+    }
 
     let canceled = false;
-    const tryPlay = async (retriesLeft: number) => {
+    const tryPlay = async () => {
       if (canceled || checkinTtsPlayedRef.current) return;
       checkinTtsAttemptingRef.current = true;
-      log(retriesLeft < 2 ? 'チェックイン音声再生(再試行)' : 'チェックイン音声再生');
+      log('チェックイン音声再生');
       const ok = await playTTS(checkinText);
       checkinTtsAttemptingRef.current = false;
       if (canceled) return;
-
       if (ok) {
         checkinTtsPlayedRef.current = true;
-        return;
-      }
-
-      if (retriesLeft > 0) {
-        if (checkinTtsRetryTimerRef.current) {
-          window.clearTimeout(checkinTtsRetryTimerRef.current);
-        }
-        checkinTtsRetryTimerRef.current = window.setTimeout(() => {
-          void tryPlay(retriesLeft - 1);
-        }, 1200);
       } else {
-        log('チェックイン音声再生失敗: リトライ上限');
+        log('チェックイン音声再生失敗');
       }
     };
 
-    void tryPlay(2);
+    void tryPlay();
     return () => {
       canceled = true;
     };
@@ -665,6 +673,10 @@ export default function Home() {
     log(`メッセージ送信開始: ${text.substring(0, 10)}...`);
     setSendError(null);
     lastSendTextRef.current = text;
+    checkinTtsHandledRef.current = true;
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
+    }
     unlockAudio();
 
     // Abort any existing request
