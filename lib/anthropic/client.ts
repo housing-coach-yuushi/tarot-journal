@@ -7,7 +7,7 @@ export interface ChatMessage {
 }
 
 export async function chatWithClaude(messages: ChatMessage[], model?: string) {
-    const selectedModel = model || process.env.CLAUDE_MODEL || 'claude-3-5-haiku-20241022';
+    const selectedModel = model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
     const systemPrompt = messages.find(m => m.role === 'system')?.content || '';
     const otherMessages = messages.filter(m => m.role !== 'system');
 
