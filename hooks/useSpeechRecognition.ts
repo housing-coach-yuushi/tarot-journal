@@ -123,6 +123,82 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     scheduleAttempt(delayMs);
   }, [clearRestartTimer]);
 
+  const attachRecognitionHandlers = useCallback((recognition: SpeechRecognitionInstance) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let sessionTranscript = '';
+
+      // Collect all results
+      for (let i = 0; i < event.results.length; i++) {
+        sessionTranscript += event.results[i][0].transcript;
+      }
+
+      sessionTranscriptRef.current = sessionTranscript.trim();
+      const mergedTranscript = joinTranscript(baseTranscriptRef.current, sessionTranscriptRef.current);
+      transcriptRef.current = mergedTranscript;
+      setCurrentTranscript(mergedTranscript);
+    };
+
+    recognition.onaudiostart = () => {
+      console.log('[STT] Audio started');
+      setDebugStatus('マイクON');
+    };
+
+    recognition.onspeechstart = () => {
+      console.log('[STT] Speech detected');
+      setDebugStatus('音声検出');
+    };
+
+    recognition.onspeechend = () => {
+      console.log('[STT] Speech ended');
+      setDebugStatus('音声終了');
+    };
+
+    recognition.onend = () => {
+      console.log('[STT] onend - manualStop:', manualStopRef.current);
+      if (!manualStopRef.current && keepListeningRef.current) {
+        commitSessionTranscript();
+        setDebugStatus('録音継続中');
+        queueRestart(140);
+        return;
+      }
+      clearRestartTimer();
+      keepListeningRef.current = false;
+      setDebugStatus('待機中');
+      setIsListening(false);
+      manualStopRef.current = false;
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.error('[STT] Error:', event.error, event);
+      const errorCode = String(event.error || 'unknown');
+      if (
+        keepListeningRef.current
+        && !manualStopRef.current
+        && (errorCode === 'aborted' || errorCode === 'no-speech')
+      ) {
+        setDebugStatus('録音継続中');
+        return;
+      }
+      setDebugStatus('エラー: ' + event.error);
+      keepListeningRef.current = false;
+      clearRestartTimer();
+      setIsListening(false);
+      manualStopRef.current = false;
+    };
+  }, [clearRestartTimer, commitSessionTranscript, joinTranscript, queueRestart]);
+
+  const createRecognition = useCallback((): SpeechRecognitionInstance | null => {
+    const SpeechRecognition = getSpeechRecognitionConstructor();
+    if (!SpeechRecognition) return null;
+    const recognition = new SpeechRecognition();
+    recognition.lang = lang;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    attachRecognitionHandlers(recognition);
+    recognitionRef.current = recognition;
+    return recognition;
+  }, [attachRecognitionHandlers, lang]);
+
   // Keep callback ref updated
   useEffect(() => {
     onFinalResultRef.current = onFinalResult;
@@ -131,84 +207,18 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   // Check browser support and setup
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const SpeechRecognition = getSpeechRecognitionConstructor();
-
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognition.lang = lang;
-        recognition.continuous = true;  // Changed to true for continuous push-to-talk
-        recognition.interimResults = true;
-
-        recognition.onresult = (event: SpeechRecognitionEvent) => {
-          let sessionTranscript = '';
-
-          // Collect all results
-          for (let i = 0; i < event.results.length; i++) {
-            sessionTranscript += event.results[i][0].transcript;
-          }
-
-          sessionTranscriptRef.current = sessionTranscript.trim();
-          const mergedTranscript = joinTranscript(baseTranscriptRef.current, sessionTranscriptRef.current);
-          transcriptRef.current = mergedTranscript;
-          setCurrentTranscript(mergedTranscript);
-        };
-
-        recognition.onaudiostart = () => {
-          console.log('[STT] Audio started');
-          setDebugStatus('マイクON');
-        };
-
-        recognition.onspeechstart = () => {
-          console.log('[STT] Speech detected');
-          setDebugStatus('音声検出');
-        };
-
-        recognition.onspeechend = () => {
-          console.log('[STT] Speech ended');
-          setDebugStatus('音声終了');
-        };
-
-        recognition.onend = () => {
-          console.log('[STT] onend - manualStop:', manualStopRef.current);
-          if (!manualStopRef.current && keepListeningRef.current) {
-            commitSessionTranscript();
-            setDebugStatus('録音継続中');
-            queueRestart(140);
-            return;
-          }
-          clearRestartTimer();
-          keepListeningRef.current = false;
-          setDebugStatus('待機中');
-          setIsListening(false);
-          manualStopRef.current = false;
-        };
-
-        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-          console.error('[STT] Error:', event.error, event);
-          const errorCode = String(event.error || 'unknown');
-          if (
-            keepListeningRef.current
-            && !manualStopRef.current
-            && (errorCode === 'aborted' || errorCode === 'no-speech')
-          ) {
-            setDebugStatus('録音継続中');
-            return;
-          }
-          setDebugStatus('エラー: ' + event.error);
-          keepListeningRef.current = false;
-          clearRestartTimer();
-          setIsListening(false);
-          manualStopRef.current = false;
-        };
-
-        recognitionRef.current = recognition;
-      }
+      createRecognition();
     }
     return () => {
       clearRestartTimer();
       keepListeningRef.current = false;
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        // no-op
+      }
     };
-  }, [lang, clearRestartTimer, commitSessionTranscript, joinTranscript, queueRestart]);  // onFinalResult is handled via ref
+  }, [clearRestartTimer, createRecognition]);  // onFinalResult is handled via ref
 
   // Start listening (press down)
   const startListening = useCallback(() => {
@@ -244,6 +254,19 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
             console.log('[STT] Retry successful');
           } catch (retryError: unknown) {
             console.error('[STT] Retry failed:', retryError);
+            // iOS Safari can keep a stale recognizer after repeated sessions.
+            // Recreate one instance and retry once more.
+            const newRecognition = createRecognition();
+            if (newRecognition) {
+              try {
+                console.log('[STT] Rebuilding recognition instance...');
+                newRecognition.start();
+                console.log('[STT] Rebuild retry successful');
+                return;
+              } catch (rebuildError) {
+                console.error('[STT] Rebuild retry failed:', rebuildError);
+              }
+            }
             if (keepListeningRef.current && !manualStopRef.current) {
               setDebugStatus('録音継続中');
               queueRestart(180);
@@ -257,7 +280,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
         }, 100);
       }
     }
-  }, [clearRestartTimer, queueRestart]);
+  }, [clearRestartTimer, createRecognition, queueRestart]);
 
   // Stop listening and send (release)
   const stopAndSend = useCallback(() => {
