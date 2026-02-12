@@ -16,9 +16,20 @@ import { addToConversationHistory, getConversationHistory } from '@/lib/db/redis
 import { addMessage } from '@/lib/journal/storage';
 import { getVoiceIdByName, DEFAULT_VOICE_ID } from '@/lib/tts/voices';
 
+function normalizeUserId(raw: unknown): string | null {
+    if (typeof raw !== 'string') return null;
+    const id = raw.trim();
+    if (!id || id === 'default') return null;
+    return id;
+}
+
 export async function POST(request: NextRequest) {
     try {
-        const { message, history = [], saveData, userId = 'default' } = await request.json();
+        const { message, history = [], saveData, userId: rawUserId } = await request.json();
+        const userId = normalizeUserId(rawUserId);
+        if (!userId) {
+            return NextResponse.json({ error: 'Invalid userId' }, { status: 400 });
+        }
         console.log(`[API/CHAT] Incoming request: message="${message?.substring(0, 20)}", userId=${userId}`);
 
         // Handle data saving (for bootstrap completion)
@@ -170,7 +181,10 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
-        const userId = searchParams.get('userId') || 'default';
+        const userId = normalizeUserId(searchParams.get('userId'));
+        if (!userId) {
+            return NextResponse.json({ error: 'Invalid userId' }, { status: 400 });
+        }
 
         const isBootstrapped = await isBootstrapComplete();
         const userOnboarded = await isUserOnboarded(userId);

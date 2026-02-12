@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { chatWithClaude } from '@/lib/anthropic/client';
 import { getUserProfile, getConversationHistory } from '@/lib/db/redis';
 
+function normalizeUserId(raw: string | null): string | null {
+  if (!raw) return null;
+  const id = raw.trim();
+  if (!id || id === 'default') return null;
+  return id;
+}
+
 const CHECKIN_PROMPT = `あなたはタロットジャーナルアプリのチェックインガイドです。
 ユーザーがこれからジャーナルをつけ始めるにあたって、心を落ち着かせ、自分の内面に意識を向けるための短い言葉を生成してください。
 
@@ -56,7 +63,7 @@ const CHECKIN_PROMPT = `あなたはタロットジャーナルアプリのチ�
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId') || 'default';
+    const userId = normalizeUserId(searchParams.get('userId'));
 
     // Use Tokyo timezone (JST) for all date/time calculations
     const now = new Date();
@@ -88,10 +95,10 @@ export async function GET(request: NextRequest) {
     const season = seasons[month - 1];
 
     // Fetch user info and last session in parallel
-    const [userProfile, history] = await Promise.all([
+    const [userProfile, history] = userId ? await Promise.all([
       getUserProfile(userId).catch(() => null),
       getConversationHistory(userId, 1).catch(() => ({ messages: [] })),
-    ]);
+    ]) : [null, { messages: [] }];
 
     // Build context
     const userName = userProfile?.displayName

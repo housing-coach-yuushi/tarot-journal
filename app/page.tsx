@@ -104,6 +104,8 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
   const [isShuffleOpen, setIsShuffleOpen] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -161,6 +163,15 @@ export default function Home() {
       noticeTimerRef.current = null;
     }, ttlMs);
   }, []);
+
+  const resolveUserId = useCallback((): string => {
+    if (userId && userId !== 'default') return userId;
+    const resolved = getUserId();
+    if (resolved !== userId) {
+      setUserId(resolved);
+    }
+    return resolved;
+  }, [userId]);
 
   // Initialize userId on client side
   useEffect(() => {
@@ -333,6 +344,32 @@ export default function Home() {
     if (audio.src && audio.src.startsWith('blob:')) {
       URL.revokeObjectURL(audio.src);
     }
+
+    // Set up AudioContext for volume boosting
+    if (!audioContextRef.current && typeof window !== 'undefined') {
+      try {
+        const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          audioContextRef.current = ctx;
+          const source = ctx.createMediaElementSource(audio);
+          const gain = ctx.createGain();
+          gain.gain.value = 2.0; // Boost volume (2.0 = +6dB approx)
+          gainNodeRef.current = gain;
+          source.connect(gain);
+          gain.connect(ctx.destination);
+          log('オーディオ・ブースター有効化 (Gain: 2.0)');
+        }
+      } catch (e) {
+        console.warn('AudioContext setup failed:', e);
+      }
+    }
+
+    // Ensure context is running (required for many browsers after a period of silence)
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      void audioContextRef.current.resume();
+    }
+
     audio.setAttribute('playsinline', 'true');
     audio.muted = false;
     audio.volume = 1;
@@ -693,6 +730,7 @@ export default function Home() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setIsSending(true);
+    const requestUserId = resolveUserId();
 
     // Clear input immediately to prevent double-send
     if (showInChat) {
@@ -720,7 +758,7 @@ export default function Home() {
         signal: controller.signal,
         body: JSON.stringify({
           message: text,
-          userId,
+          userId: requestUserId,
           history: messages.map(m => ({
             role: m.role === 'tarot' ? 'user' : m.role,  // Convert tarot to user for API
             content: m.role === 'tarot' && m.card
@@ -775,7 +813,7 @@ export default function Home() {
         abortControllerRef.current = null;
       }
     }
-  }, [messages, userId, isSending, log, stopTTS, playTTS, unlockAudio]);
+  }, [messages, isSending, log, stopTTS, playTTS, unlockAudio, resolveUserId]);
 
   // Save to Obsidian
   const handleSave = useCallback(async () => {
@@ -785,13 +823,14 @@ export default function Home() {
     log('要約中...');
 
     try {
+      const requestUserId = resolveUserId();
       // Step 1: Get summary from AI
       const summarizeResponse = await fetch('/api/journal/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: messages.map(m => ({ role: m.role, content: m.content })),
-          userId,
+          userId: requestUserId,
         }),
       });
 
@@ -867,7 +906,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     } finally {
       setIsSummarizing(false);
     }
-  }, [messages, isSummarizing, log, bootstrap, userId, pushNotice]);
+  }, [messages, isSummarizing, log, bootstrap, pushNotice, resolveUserId]);
 
   // Handle actual tarot draw after shuffle
   const processTarotDraw = useCallback(() => {
@@ -915,10 +954,11 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     log(`リセット開始: ${resetType}`);
 
     try {
+      const requestUserId = resolveUserId();
       const response = await fetch('/api/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, resetType }),
+        body: JSON.stringify({ userId: requestUserId, resetType }),
       });
 
       if (response.ok) {
@@ -937,7 +977,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
     } finally {
       setIsResetting(false);
     }
-  }, [userId, log]);
+  }, [log, resolveUserId]);
 
   // Share to native apps (Web Share API) - with user-friendly formatting
   const handleShare = useCallback(async () => {
