@@ -30,6 +30,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const [currentLineIndex, setCurrentLineIndex] = useState(0);
     const [audioLevel, setAudioLevel] = useState(0);
     const [progress, setProgress] = useState(0);
+    const [isAudioReady, setIsAudioReady] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const eqBars = [0.35, 0.6, 0.45, 0.8, 0.5, 0.65, 0.42, 0.72];
     const coverImageUrl = '/icon-options/george_illustrative.png';
@@ -85,6 +86,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         setIsNew(false);
         setCurrentLineIndex(0);
         setProgress(0);
+        setIsAudioReady(false);
     }, [isOpen]);
 
     // Simple reactive level without WebAudio routing to avoid Safari/iOS silent playback.
@@ -104,6 +106,18 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
             setAudioLevel(0);
         };
     }, [isPlaying]);
+
+    // Reset audio element state when source changes.
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        setIsPlaying(false);
+        setProgress(0);
+        audio.currentTime = 0;
+        if (audioUrl) {
+            audio.load();
+        }
+    }, [audioUrl]);
 
     const generateRadio = async () => {
         setIsLoading(true);
@@ -129,6 +143,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                 throw new Error('音声URLが返ってきませんでした。時間をおいて再試行してください。');
             }
             setAudioUrl(data.audioUrl);
+            setIsAudioReady(false);
             setTitle(data.title);
             setSubtitle(data.subtitle || 'Weekly Focus Session');
             setScript(data.script);
@@ -153,6 +168,10 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
 
     const togglePlay = async () => {
         if (!audioRef.current) return;
+        if (!audioUrl) {
+            setError('音声データがありません。先に番組を生成してください。');
+            return;
+        }
 
         if (isPlaying) {
             audioRef.current.pause();
@@ -164,6 +183,19 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                 const msg = err?.message || '音声再生に失敗しました';
                 setError(`再生エラー: ${msg}`);
             }
+        }
+    };
+
+    const playFromStart = async () => {
+        const audio = audioRef.current;
+        if (!audio || !audioUrl) return;
+        audio.currentTime = 0;
+        setError(null);
+        try {
+            await audio.play();
+        } catch (err: any) {
+            const msg = err?.message || '音声再生に失敗しました';
+            setError(`再生エラー: ${msg}`);
         }
     };
 
@@ -511,6 +543,31 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                                             />
                                         ))}
                                     </div>
+
+                                    <div className="mt-5 flex flex-col sm:flex-row gap-2">
+                                        <button
+                                            onClick={togglePlay}
+                                            disabled={!audioUrl}
+                                            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors ${
+                                                audioUrl
+                                                    ? 'border-cyan-300/40 bg-cyan-200/10 text-cyan-100 hover:bg-cyan-200/20'
+                                                    : 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
+                                            }`}
+                                        >
+                                            {isPlaying ? '音声を停止' : (isAudioReady ? '音声を再生' : '読み込み中...')}
+                                        </button>
+                                        <button
+                                            onClick={playFromStart}
+                                            disabled={!audioUrl}
+                                            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors ${
+                                                audioUrl
+                                                    ? 'border-white/20 bg-white/10 text-white/90 hover:bg-white/20'
+                                                    : 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
+                                            }`}
+                                        >
+                                            最初から再生
+                                        </button>
+                                    </div>
                                 </div>
                             </>
                         )}
@@ -521,6 +578,9 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                         src={audioUrl || ''}
                         preload="auto"
                         playsInline
+                        onLoadStart={() => setIsAudioReady(false)}
+                        onCanPlay={() => setIsAudioReady(true)}
+                        onLoadedData={() => setIsAudioReady(true)}
                         onEnded={() => setIsPlaying(false)}
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
