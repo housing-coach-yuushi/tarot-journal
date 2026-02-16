@@ -92,6 +92,7 @@ export default function Home() {
   const [isSharing, setIsSharing] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [userId, setUserId] = useState<string>('default');
   const [showSettings, setShowSettings] = useState(false);
@@ -1279,9 +1280,12 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
         currentAiName={bootstrap.identity?.name || ''}
         currentUserName={bootstrap.user?.name || bootstrap.user?.callName || ''}
         currentVoiceId={bootstrap.identity?.voiceId || ''}
-        currentShowDebug={bootstrap.identity?.showDebug || false}
+        currentShowDebug={showDebug}
         currentBgmEnabled={bootstrap.identity?.bgmEnabled || false}
         onSave={(settings) => {
+          if (settings.showDebug !== undefined) {
+            setShowDebug(settings.showDebug);
+          }
           // Update local bootstrap state with new values
           if (settings.aiName || settings.voiceId || settings.showDebug !== undefined || settings.bgmEnabled !== undefined) {
             setBootstrap(prev => ({
@@ -1290,7 +1294,6 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
                 ...(prev.identity || {}),
                 name: settings.aiName || prev.identity?.name,
                 voiceId: settings.voiceId || prev.identity?.voiceId,
-                showDebug: settings.showDebug !== undefined ? settings.showDebug : prev.identity?.showDebug,
                 bgmEnabled: settings.bgmEnabled !== undefined ? settings.bgmEnabled : prev.identity?.bgmEnabled
               }
             }));
@@ -1500,7 +1503,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       )}
 
       {/* Debug Log - Only visible when enabled in settings or in development by default */}
-      {bootstrap.identity?.showDebug === true && (
+      {showDebug === true && (
         <div className="absolute top-[65px] left-4 z-50 pointer-events-none max-w-[250px]">
           <div className="bg-black/60 backdrop-blur-md rounded-md p-2 font-mono text-[10px] sm:text-[12px] text-green-400 border border-green-500/20">
             <div className="flex gap-2 mb-1 border-b border-white/10 pb-1">
