@@ -31,9 +31,6 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const [audioLevel, setAudioLevel] = useState(0);
     const [progress, setProgress] = useState(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
-    const analyzerRef = useRef<AnalyserNode | null>(null);
-    const animationFrameRef = useRef<number | null>(null);
-    const audioContextRef = useRef<AudioContext | null>(null);
 
     // Track audio progress and estimate current line
     useEffect(() => {
@@ -67,46 +64,23 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         }
     }, [isOpen, audioUrl, isLoading]);
 
-    // Setup Audio Analyzer for reactive aurora
+    // Simple reactive level without WebAudio routing to avoid Safari/iOS silent playback.
     useEffect(() => {
-        if (!audioRef.current || !audioUrl) return;
-
-        const setupAudio = async () => {
-            if (!audioContextRef.current) {
-                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-            }
-            const audioContext = audioContextRef.current;
-
-            if (!analyzerRef.current) {
-                const source = audioContext.createMediaElementSource(audioRef.current!);
-                const analyzer = audioContext.createAnalyser();
-                analyzer.fftSize = 256;
-                source.connect(analyzer);
-                analyzer.connect(audioContext.destination);
-                analyzerRef.current = analyzer;
-            }
-
-            const updateLevel = () => {
-                if (analyzerRef.current && isPlaying) {
-                    const dataArray = new Uint8Array(analyzerRef.current.frequencyBinCount);
-                    analyzerRef.current.getByteFrequencyData(dataArray);
-                    const average = dataArray.reduce((src, val) => src + val, 0) / dataArray.length;
-                    setAudioLevel(average / 150);
-                } else {
-                    setAudioLevel(0);
-                }
-                animationFrameRef.current = requestAnimationFrame(updateLevel);
-            };
-
-            updateLevel();
-        };
-
-        setupAudio();
-
+        if (!isPlaying) {
+            setAudioLevel(0);
+            return;
+        }
+        const timer = window.setInterval(() => {
+            setAudioLevel(prev => {
+                const next = prev * 0.7 + Math.random() * 0.35;
+                return Math.max(0.08, Math.min(next, 0.7));
+            });
+        }, 120);
         return () => {
-            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+            window.clearInterval(timer);
+            setAudioLevel(0);
         };
-    }, [audioUrl, isPlaying]);
+    }, [isPlaying]);
 
     const generateRadio = async () => {
         setIsLoading(true);
@@ -125,6 +99,9 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
             }
 
             const data = await response.json();
+            if (!data.audioUrl || typeof data.audioUrl !== 'string') {
+                throw new Error('音声URLが返ってきませんでした。時間をおいて再試行してください。');
+            }
             setAudioUrl(data.audioUrl);
             setTitle(data.title);
             setSubtitle(data.subtitle || 'Weekly Focus Session');
@@ -151,16 +128,17 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const togglePlay = async () => {
         if (!audioRef.current) return;
 
-        if (audioContextRef.current?.state === 'suspended') {
-            await audioContextRef.current.resume();
-        }
-
         if (isPlaying) {
             audioRef.current.pause();
         } else {
-            audioRef.current.play();
+            setError(null);
+            try {
+                await audioRef.current.play();
+            } catch (err: any) {
+                const msg = err?.message || '音声再生に失敗しました';
+                setError(`再生エラー: ${msg}`);
+            }
         }
-        setIsPlaying(!isPlaying);
     };
 
     const handleShareSession = async () => {
@@ -454,9 +432,17 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                     <audio
                         ref={audioRef}
                         src={audioUrl || ''}
+                        preload="auto"
+                        playsInline
                         onEnded={() => setIsPlaying(false)}
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
+                        onError={() => {
+                            setIsPlaying(false);
+                            const audio = audioRef.current;
+                            const src = audio?.currentSrc || audio?.getAttribute('src') || '';
+                            setError(`音声の読み込みに失敗しました: ${src ? src.slice(0, 120) : 'src不明'}`);
+                        }}
                     />
 
                     <style jsx>{`
