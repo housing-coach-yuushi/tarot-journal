@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, Radio, SkipForward, SkipBack, ArrowLeft, Share2, Disc3 } from 'lucide-react';
+import { Play, Pause, Radio, SkipForward, SkipBack, ArrowLeft, Share2, Disc3, Mic2, Signal, Volume2 } from 'lucide-react';
 import GlowVisualizer from './GlowVisualizer';
 
 interface RadioLine {
@@ -31,6 +31,8 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const [audioLevel, setAudioLevel] = useState(0);
     const [progress, setProgress] = useState(0);
     const [isAudioReady, setIsAudioReady] = useState(false);
+    const [currentTimeSec, setCurrentTimeSec] = useState(0);
+    const [durationSec, setDurationSec] = useState(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const eqBars = [0.35, 0.6, 0.45, 0.8, 0.5, 0.65, 0.42, 0.72];
     const coverImageUrl = '/icon-options/george_illustrative.png';
@@ -45,8 +47,12 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         if (!audio) return;
 
         const handleTimeUpdate = () => {
+            const now = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+            setCurrentTimeSec(now);
+
             if (audio.duration && isFinite(audio.duration)) {
-                const pct = audio.currentTime / audio.duration;
+                setDurationSec(audio.duration);
+                const pct = now / audio.duration;
                 setProgress(pct);
 
                 // Estimate current line based on progress
@@ -57,6 +63,8 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                     );
                     setCurrentLineIndex(idx);
                 }
+            } else {
+                setProgress(0);
             }
         };
 
@@ -87,6 +95,8 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         setCurrentLineIndex(0);
         setProgress(0);
         setIsAudioReady(false);
+        setCurrentTimeSec(0);
+        setDurationSec(0);
     }, [isOpen]);
 
     // Simple reactive level without WebAudio routing to avoid Safari/iOS silent playback.
@@ -113,6 +123,8 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         if (!audio) return;
         setIsPlaying(false);
         setProgress(0);
+        setCurrentTimeSec(0);
+        setDurationSec(0);
         audio.currentTime = 0;
         if (audioUrl) {
             audio.load();
@@ -261,6 +273,16 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         }
     };
 
+    const formatTime = (totalSec: number) => {
+        if (!Number.isFinite(totalSec) || totalSec < 0) return '0:00';
+        const seconds = Math.floor(totalSec);
+        const minutes = Math.floor(seconds / 60);
+        const remain = seconds % 60;
+        return `${minutes}:${String(remain).padStart(2, '0')}`;
+    };
+
+    const activeLine = script[currentLineIndex];
+
     return (
         <AnimatePresence>
             {isOpen && (
@@ -399,25 +421,14 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                             </div>
                         ) : (
                             <>
-                                {/* Session Title Section */}
                                 <motion.div
                                     initial={{ y: 20, opacity: 0 }}
                                     animate={{ y: 0, opacity: 1 }}
-                                    className="text-center mb-8 w-full px-4"
+                                    className="text-center mb-6 w-full px-4"
                                 >
-                                    <div className="mb-4 w-full flex justify-center">
-                                        <div className="w-full max-w-xl rounded-2xl overflow-hidden border border-cyan-100/20 shadow-[0_12px_35px_rgba(0,0,0,0.45)]">
-                                            <img
-                                                src={coverImageUrl}
-                                                alt="Weekly Radio Cover"
-                                                className="w-full h-36 sm:h-44 object-cover"
-                                                loading="lazy"
-                                            />
-                                        </div>
-                                    </div>
                                     <div className="inline-flex items-center px-3 py-1.5 mb-4 rounded-full bg-white/5 border border-white/15 gap-2">
                                         <span className={`text-[8px] font-bold tracking-widest uppercase ${isNew ? 'text-cyan-200' : 'text-white/45'}`}>
-                                            {isNew ? '● NEW BROADCAST' : '● RECORDED SESSION'}
+                                            {isNew ? 'LIVE ARCHIVE READY' : 'RECORDED SESSION'}
                                         </span>
                                         {dateRange && (
                                             <span className="text-[8px] font-bold tracking-widest uppercase text-white/25 border-l border-white/10 pl-2">
@@ -430,144 +441,200 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                                         {title || "Weekly George's Radio"}
                                     </h1>
                                     <div className="flex items-center justify-center gap-3">
-                                        <div className="h-[1px] w-10 bg-cyan-300/25" />
+                                        <div className="h-[1px] w-12 bg-cyan-300/25" />
                                         <p className="text-[10px] tracking-[0.28em] uppercase text-cyan-100/70 font-medium">{subtitle}</p>
-                                        <div className="h-[1px] w-10 bg-cyan-300/25" />
+                                        <div className="h-[1px] w-12 bg-cyan-300/25" />
                                     </div>
                                 </motion.div>
 
-                                {/* Floating Portraits */}
-                                <div className="flex justify-center gap-10 sm:gap-16 w-full mb-10">
-                                    {[
-                                        { name: 'George', emoji: '🤵‍♂️' },
-                                        { name: 'Aria', emoji: '🎙️' }
-                                    ].map((person, idx) => (
-                                        <motion.div
-                                            key={person.name}
-                                            animate={isPlaying ? {
-                                                y: [0, -12, 0],
-                                                scale: [1, 1.05, 1],
-                                            } : {}}
-                                            transition={{
-                                                repeat: Infinity,
-                                                duration: 5,
-                                                delay: idx * 2.5,
-                                                ease: "easeInOut"
-                                            }}
-                                            className="flex flex-col items-center gap-4"
-                                        >
-                                            <div className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-b from-cyan-100/15 to-transparent border border-cyan-100/20 flex items-center justify-center text-4xl sm:text-5xl shadow-2xl relative overflow-hidden ${isPlaying ? 'ring-2 ring-cyan-200/30 ring-offset-4 ring-offset-[#040914] transition-all' : ''}`}>
-                                                <Disc3 size={66} className={`absolute text-white/10 ${isPlaying ? 'animate-spin [animation-duration:6s]' : ''}`} />
-                                                <img
-                                                    src={hostVisuals[person.name as keyof typeof hostVisuals]}
-                                                    alt={`${person.name} visual`}
-                                                    className="absolute inset-0 w-full h-full object-cover opacity-80"
-                                                />
-                                                <span className="drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] relative">{person.emoji}</span>
-                                                {isPlaying && (
-                                                    <motion.div
-                                                        className="absolute -right-1 -top-1 w-6 h-6 rounded-full bg-red-500 border-2 border-[#050710] flex items-center justify-center"
-                                                        animate={{ scale: [1, 1.2, 1] }}
-                                                        transition={{ repeat: Infinity, duration: 2 }}
-                                                    >
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-white opacity-80" />
-                                                    </motion.div>
-                                                )}
-                                            </div>
-                                            <span className={`text-[10px] sm:text-[11px] font-bold tracking-[0.42em] uppercase transition-all duration-500 ${isPlaying ? 'text-cyan-100 opacity-100' : 'text-white/25'}`}>
-                                                {person.name}
-                                            </span>
-                                        </motion.div>
-                                    ))}
-                                </div>
-
-                                {/* Dialogue Stream */}
-                                <div className="w-full h-52 overflow-y-auto mb-8 mask-fade-y scrollbar-hide rounded-3xl border border-white/10 bg-[#060b14]/80 backdrop-blur-xl px-4 sm:px-8 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-                                    <div className="space-y-7 pb-24 pt-2">
-                                        {script.map((line, i) => (
-                                            <motion.div
-                                                key={i}
-                                                className={`flex flex-col gap-1 text-center transition-all duration-700 ${currentLineIndex === i ? 'scale-100 opacity-100' : 'opacity-35 scale-[0.98]'}`}
-                                            >
-                                                <span className={`text-[9px] tracking-[0.35em] uppercase font-bold ${currentLineIndex === i ? 'text-cyan-200/90' : 'text-white/35'}`}>{line.speaker}</span>
-                                                <p className={`text-base sm:text-lg font-light leading-relaxed px-3 sm:px-6 ${currentLineIndex === i ? 'text-white' : 'text-white/50'}`}>
-                                                    {line.text}
-                                                </p>
-                                            </motion.div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Player Controls */}
-                                <div className="w-full max-w-md bg-[#070d18]/90 backdrop-blur-3xl border border-cyan-100/15 rounded-[2.4rem] p-6 sm:p-7 shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
-                                    <div className="relative w-full h-1 bg-white/10 rounded-full mb-6 overflow-hidden">
-                                        <div
-                                            className="h-full bg-gradient-to-r from-cyan-300 via-blue-300 to-cyan-300 shadow-[0_0_18px_rgba(103,232,249,0.45)] transition-all duration-300 ease-linear"
-                                            style={{ width: `${progress * 100}%` }}
-                                        />
-                                    </div>
-
-                                    <div className="flex items-center justify-between mb-6 px-2 sm:px-6">
-                                        <button
-                                            onClick={() => seekBy(-15)}
-                                            className="text-white/40 hover:text-cyan-100 transition-colors p-2"
-                                            aria-label="15秒戻る"
-                                        >
-                                            <SkipBack size={24} />
-                                        </button>
-
-                                        <motion.button
-                                            whileTap={{ scale: 0.9 }}
-                                            onClick={togglePlay}
-                                            className="w-20 h-20 rounded-full bg-gradient-to-b from-cyan-100 to-cyan-300 text-[#02111d] flex items-center justify-center shadow-[0_12px_30px_rgba(34,211,238,0.4)] hover:scale-105 transition-all outline-none"
-                                        >
-                                            {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-1" />}
-                                        </motion.button>
-
-                                        <button
-                                            onClick={() => seekBy(15)}
-                                            className="text-white/40 hover:text-cyan-100 transition-colors p-2"
-                                            aria-label="15秒進む"
-                                        >
-                                            <SkipForward size={24} />
-                                        </button>
-                                    </div>
-
-                                    <div className="grid grid-cols-8 gap-1.5 items-end h-8">
-                                        {eqBars.map((bar, i) => (
-                                            <motion.span
-                                                key={i}
-                                                className="rounded-full bg-gradient-to-t from-cyan-500/80 to-cyan-100/90"
-                                                animate={isPlaying ? { height: [`${10 + bar * 12}px`, `${16 + bar * 28}px`, `${8 + bar * 20}px`] } : { height: '8px', opacity: 0.45 }}
-                                                transition={{ duration: 0.9 + (i % 3) * 0.25, repeat: Infinity, ease: 'easeInOut' }}
+                                <div className="w-full max-w-5xl grid lg:grid-cols-[1.4fr_1fr] gap-4 sm:gap-6">
+                                    <section className="rounded-[2rem] border border-cyan-100/15 bg-[#060d18]/85 backdrop-blur-2xl shadow-[0_20px_55px_rgba(0,0,0,0.5)] overflow-hidden">
+                                        <div className="relative border-b border-white/10">
+                                            <img
+                                                src={coverImageUrl}
+                                                alt="Weekly Radio Cover"
+                                                className="w-full h-36 sm:h-48 object-cover opacity-85"
+                                                loading="lazy"
                                             />
-                                        ))}
-                                    </div>
+                                            <div className="absolute inset-0 bg-gradient-to-t from-[#050a14] via-[#050a14]/35 to-transparent" />
+                                            <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                                                <div className="px-2.5 py-1 rounded-full bg-black/55 border border-cyan-200/30 text-[9px] font-semibold tracking-[0.3em] text-cyan-100 uppercase">
+                                                    88.1 MHz
+                                                </div>
+                                                <div className={`px-2.5 py-1 rounded-full border text-[9px] font-semibold tracking-[0.22em] uppercase ${isPlaying ? 'bg-red-500/20 border-red-300/60 text-red-100' : 'bg-white/10 border-white/20 text-white/60'}`}>
+                                                    {isPlaying ? 'On Air' : 'Standby'}
+                                                </div>
+                                            </div>
+                                            <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+                                                <div className="text-[10px] tracking-[0.28em] uppercase text-cyan-100/85 font-semibold">
+                                                    George Night Shift
+                                                </div>
+                                                <div className="flex items-center gap-1.5 text-white/65">
+                                                    <Signal size={14} />
+                                                    <span className="text-[10px] font-medium">{isAudioReady ? 'Signal OK' : 'Buffering'}</span>
+                                                </div>
+                                            </div>
+                                        </div>
 
-                                    <div className="mt-5 flex flex-col sm:flex-row gap-2">
-                                        <button
-                                            onClick={togglePlay}
-                                            disabled={!audioUrl}
-                                            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors ${
-                                                audioUrl
-                                                    ? 'border-cyan-300/40 bg-cyan-200/10 text-cyan-100 hover:bg-cyan-200/20'
-                                                    : 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
-                                            }`}
-                                        >
-                                            {isPlaying ? '音声を停止' : (isAudioReady ? '音声を再生' : '読み込み中...')}
-                                        </button>
-                                        <button
-                                            onClick={playFromStart}
-                                            disabled={!audioUrl}
-                                            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors ${
-                                                audioUrl
-                                                    ? 'border-white/20 bg-white/10 text-white/90 hover:bg-white/20'
-                                                    : 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
-                                            }`}
-                                        >
-                                            最初から再生
-                                        </button>
-                                    </div>
+                                        <div className="px-4 sm:px-5 py-3 border-b border-white/10 bg-[#050b14]/90">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-[9px] tracking-[0.32em] uppercase text-cyan-200/70 mb-1">
+                                                        Now Talking
+                                                    </p>
+                                                    <p className="text-sm sm:text-base font-medium text-white truncate">
+                                                        {activeLine ? `${activeLine.speaker}: ${activeLine.text}` : '配信の準備ができています。'}
+                                                    </p>
+                                                </div>
+                                                <div className="hidden sm:flex items-center gap-2">
+                                                    {(['George', 'Aria'] as const).map((name) => (
+                                                        <div key={name} className="relative w-11 h-11 rounded-full border border-cyan-100/30 overflow-hidden bg-black/50">
+                                                            <Disc3 size={22} className={`absolute inset-0 m-auto text-white/15 ${isPlaying ? 'animate-spin [animation-duration:7s]' : ''}`} />
+                                                            <img
+                                                                src={hostVisuals[name]}
+                                                                alt={`${name} visual`}
+                                                                className="w-full h-full object-cover opacity-90"
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="h-56 overflow-y-auto mask-fade-y scrollbar-hide px-4 sm:px-5 py-4 bg-[#030810]/85">
+                                            <div className="space-y-4 pb-12">
+                                                {script.map((line, i) => {
+                                                    const isActive = currentLineIndex === i;
+                                                    const isGeorge = line.speaker.toLowerCase() === 'george';
+                                                    return (
+                                                        <motion.div
+                                                            key={`${line.speaker}-${i}`}
+                                                            className={`flex ${isGeorge ? 'justify-start' : 'justify-end'} transition-all duration-500 ${isActive ? 'opacity-100' : 'opacity-45'}`}
+                                                        >
+                                                            <div className={`max-w-[92%] sm:max-w-[82%] rounded-2xl px-3.5 py-2.5 border ${
+                                                                isGeorge
+                                                                    ? isActive
+                                                                        ? 'bg-cyan-400/14 border-cyan-200/35'
+                                                                        : 'bg-cyan-400/5 border-cyan-200/20'
+                                                                    : isActive
+                                                                        ? 'bg-indigo-400/16 border-indigo-200/35'
+                                                                        : 'bg-indigo-400/6 border-indigo-200/20'
+                                                            }`}>
+                                                                <p className={`text-[9px] tracking-[0.28em] uppercase font-semibold mb-1 ${isActive ? 'text-cyan-100' : 'text-white/45'}`}>
+                                                                    {line.speaker}
+                                                                </p>
+                                                                <p className={`text-sm sm:text-[15px] leading-relaxed ${isActive ? 'text-white' : 'text-white/65'}`}>
+                                                                    {line.text}
+                                                                </p>
+                                                            </div>
+                                                        </motion.div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <section className="rounded-[2rem] border border-cyan-100/20 bg-[#070d18]/90 backdrop-blur-2xl shadow-[0_20px_55px_rgba(0,0,0,0.55)] p-5 sm:p-6">
+                                        <div className="grid grid-cols-2 gap-3 mb-4">
+                                            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
+                                                <p className="text-[9px] tracking-[0.25em] uppercase text-white/45 mb-1">Status</p>
+                                                <div className="flex items-center gap-1.5 text-cyan-100">
+                                                    <Signal size={13} />
+                                                    <span className="text-xs font-semibold">{isPlaying ? 'Broadcasting' : 'Standby'}</span>
+                                                </div>
+                                            </div>
+                                            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
+                                                <p className="text-[9px] tracking-[0.25em] uppercase text-white/45 mb-1">Level</p>
+                                                <div className="flex items-center gap-1.5 text-cyan-100">
+                                                    <Volume2 size={13} />
+                                                    <span className="text-xs font-semibold">{Math.round(audioLevel * 140)}%</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 mb-5">
+                                            <div className="relative w-full h-1.5 bg-white/15 rounded-full mb-2 overflow-hidden">
+                                                <div
+                                                    className="h-full bg-gradient-to-r from-cyan-300 via-blue-300 to-cyan-300 shadow-[0_0_18px_rgba(103,232,249,0.45)] transition-all duration-300 ease-linear"
+                                                    style={{ width: `${progress * 100}%` }}
+                                                />
+                                            </div>
+                                            <div className="flex items-center justify-between text-[10px] tracking-[0.18em] uppercase text-white/55 font-semibold">
+                                                <span>{formatTime(currentTimeSec)}</span>
+                                                <span>{durationSec > 0 ? formatTime(durationSec) : '--:--'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-center gap-4 mb-5">
+                                            <button
+                                                onClick={() => seekBy(-15)}
+                                                className="w-12 h-12 rounded-full border border-white/15 bg-white/5 text-white/55 hover:text-cyan-100 hover:border-cyan-200/35 transition-colors flex items-center justify-center"
+                                                aria-label="15秒戻る"
+                                            >
+                                                <SkipBack size={20} />
+                                            </button>
+                                            <motion.button
+                                                whileTap={{ scale: 0.92 }}
+                                                onClick={togglePlay}
+                                                className="w-20 h-20 rounded-full bg-gradient-to-b from-cyan-100 to-cyan-300 text-[#02111d] flex items-center justify-center shadow-[0_14px_35px_rgba(34,211,238,0.4)] hover:scale-105 transition-all"
+                                            >
+                                                {isPlaying ? <Pause size={30} fill="currentColor" /> : <Play size={30} fill="currentColor" className="ml-1" />}
+                                            </motion.button>
+                                            <button
+                                                onClick={() => seekBy(15)}
+                                                className="w-12 h-12 rounded-full border border-white/15 bg-white/5 text-white/55 hover:text-cyan-100 hover:border-cyan-200/35 transition-colors flex items-center justify-center"
+                                                aria-label="15秒進む"
+                                            >
+                                                <SkipForward size={20} />
+                                            </button>
+                                        </div>
+
+                                        <div className="grid grid-cols-8 gap-1.5 items-end h-9 mb-5 rounded-xl border border-white/10 bg-black/25 px-2">
+                                            {eqBars.map((bar, i) => (
+                                                <motion.span
+                                                    key={i}
+                                                    className="rounded-full bg-gradient-to-t from-cyan-500/80 to-cyan-100/90"
+                                                    animate={isPlaying ? { height: [`${10 + bar * 12}px`, `${16 + bar * 28}px`, `${8 + bar * 20}px`] } : { height: '8px', opacity: 0.45 }}
+                                                    transition={{ duration: 0.9 + (i % 3) * 0.25, repeat: Infinity, ease: 'easeInOut' }}
+                                                />
+                                            ))}
+                                        </div>
+
+                                        <div className="flex flex-col gap-2 mb-4">
+                                            <button
+                                                onClick={togglePlay}
+                                                disabled={!audioUrl}
+                                                className={`w-full py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors ${
+                                                    audioUrl
+                                                        ? 'border-cyan-300/40 bg-cyan-200/10 text-cyan-100 hover:bg-cyan-200/20'
+                                                        : 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
+                                                }`}
+                                            >
+                                                {isPlaying ? '放送を停止' : (isAudioReady ? '放送を再生' : '読み込み中...')}
+                                            </button>
+                                            <button
+                                                onClick={playFromStart}
+                                                disabled={!audioUrl}
+                                                className={`w-full py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors ${
+                                                    audioUrl
+                                                        ? 'border-white/20 bg-white/10 text-white/90 hover:bg-white/20'
+                                                        : 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
+                                                }`}
+                                            >
+                                                冒頭から再生
+                                            </button>
+                                        </div>
+
+                                        <div className="rounded-xl border border-cyan-200/20 bg-cyan-200/5 px-3 py-2.5">
+                                            <div className="flex items-center gap-2 text-cyan-100/85">
+                                                <Mic2 size={14} />
+                                                <p className="text-[10px] tracking-[0.18em] uppercase font-semibold">Radio Console</p>
+                                            </div>
+                                            <p className="text-[11px] text-white/60 mt-1.5 leading-relaxed">
+                                                音声が出ない場合は「放送を再生」をもう一度押してください。再生準備後に確実に開始します。
+                                            </p>
+                                        </div>
+                                    </section>
                                 </div>
                             </>
                         )}
@@ -578,10 +645,24 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                         src={audioUrl || ''}
                         preload="auto"
                         playsInline
-                        onLoadStart={() => setIsAudioReady(false)}
+                        onLoadStart={() => {
+                            setIsAudioReady(false);
+                            setCurrentTimeSec(0);
+                        }}
                         onCanPlay={() => setIsAudioReady(true)}
+                        onLoadedMetadata={() => {
+                            const audio = audioRef.current;
+                            if (!audio) return;
+                            if (Number.isFinite(audio.duration)) {
+                                setDurationSec(audio.duration);
+                            }
+                            setIsAudioReady(true);
+                        }}
                         onLoadedData={() => setIsAudioReady(true)}
-                        onEnded={() => setIsPlaying(false)}
+                        onEnded={() => {
+                            setIsPlaying(false);
+                            setCurrentTimeSec(durationSec);
+                        }}
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
                         onError={() => {
