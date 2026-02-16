@@ -219,36 +219,6 @@ class KieApiClient {
     }
 
     /**
-     * Generate cover image for Weekly Radio UI
-     */
-    async generateWeeklyRadioCover(
-        title: string,
-        subtitle: string,
-        userName: string
-    ): Promise<string> {
-        const safeTitle = title?.trim() || "Weekly George's Radio";
-        const safeSubtitle = subtitle?.trim() || 'Weekly Focus Session';
-        const safeUser = userName?.trim() || 'Guest';
-
-        const prompt = [
-            'Cinematic premium podcast cover art.',
-            'Midnight Japanese jazz bar radio booth with warm tungsten and neon cyan lighting.',
-            'Two hosts implied by silhouettes and microphones, no clear faces.',
-            'Elegant atmosphere, reflective wood counter, analog mixer, vinyl texture, depth of field.',
-            `Mood: introspective weekly reflection for ${safeUser}.`,
-            `Theme words: ${safeTitle}, ${safeSubtitle}.`,
-            'No text, no watermark, no logo, no typography.',
-            'Ultra-detailed, polished, modern editorial style.',
-        ].join(' ');
-
-        return this.createTaskAndWait('nano-banana-pro', {
-            prompt,
-            aspect_ratio: '16:9',
-            output_format: 'png',
-        }, 180000);
-    }
-
-    /**
      * Speech-to-Text using Kie.ai task API.
      * Supports both audio_url (data URL) and audio (base64) inputs.
      */

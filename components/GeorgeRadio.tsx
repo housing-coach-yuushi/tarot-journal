@@ -20,7 +20,6 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const [isLoading, setIsLoading] = useState(false);
     const [isConfirming, setIsConfirming] = useState(false);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
-    const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
     const [title, setTitle] = useState('');
     const [subtitle, setSubtitle] = useState('');
     const [dateRange, setDateRange] = useState('');
@@ -33,6 +32,11 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const [progress, setProgress] = useState(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const eqBars = [0.35, 0.6, 0.45, 0.8, 0.5, 0.65, 0.42, 0.72];
+    const coverImageUrl = '/icon-options/george_illustrative.png';
+    const hostVisuals = {
+        George: '/icon-options/mystic_gold_mic_v2.png',
+        Aria: '/icon-options/apple_voice_tarot.png',
+    } as const;
 
     // Track audio progress and estimate current line
     useEffect(() => {
@@ -59,12 +63,29 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
     }, [script]);
 
-    // Initial check when opened
+    // Reset modal state each time it opens to avoid stale script/audio URLs.
     useEffect(() => {
-        if (isOpen && !audioUrl && !isLoading && !isConfirming) {
-            setIsConfirming(true);
+        if (!isOpen) {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.currentTime = 0;
+            }
+            setIsPlaying(false);
+            return;
         }
-    }, [isOpen, audioUrl, isLoading]);
+
+        setIsLoading(false);
+        setIsConfirming(true);
+        setError(null);
+        setAudioUrl(null);
+        setTitle('');
+        setSubtitle('');
+        setDateRange('');
+        setScript([]);
+        setIsNew(false);
+        setCurrentLineIndex(0);
+        setProgress(0);
+    }, [isOpen]);
 
     // Simple reactive level without WebAudio routing to avoid Safari/iOS silent playback.
     useEffect(() => {
@@ -88,7 +109,6 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         setIsLoading(true);
         setIsConfirming(false);
         setError(null);
-        setCoverImageUrl(null);
         try {
             const response = await fetch('/api/journal/radio', {
                 method: 'POST',
@@ -97,7 +117,10 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
             });
 
             if (!response.ok) {
-                const data = await response.json();
+                const data = await response.json().catch(() => ({}));
+                if (response.status === 404) {
+                    throw new Error('まだ週次ラジオを作れる日記がありません。先にチェックインを1件以上保存してください。');
+                }
                 throw new Error(data.error || 'ラジオの生成に失敗しました。');
             }
 
@@ -106,7 +129,6 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                 throw new Error('音声URLが返ってきませんでした。時間をおいて再試行してください。');
             }
             setAudioUrl(data.audioUrl);
-            setCoverImageUrl(typeof data.coverImageUrl === 'string' ? data.coverImageUrl : null);
             setTitle(data.title);
             setSubtitle(data.subtitle || 'Weekly Focus Session');
             setScript(data.script);
@@ -224,17 +246,15 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                         }}
                     />
                     <div className="absolute inset-0 pointer-events-none star-grid opacity-30" />
-                    {coverImageUrl && (
-                        <div
-                            className="absolute inset-0 pointer-events-none opacity-25"
-                            style={{
-                                backgroundImage: `url(${coverImageUrl})`,
-                                backgroundSize: 'cover',
-                                backgroundPosition: 'center',
-                                filter: 'blur(6px) saturate(110%)',
-                            }}
-                        />
-                    )}
+                    <div
+                        className="absolute inset-0 pointer-events-none opacity-25"
+                        style={{
+                            backgroundImage: `url(${coverImageUrl})`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            filter: 'blur(6px) saturate(110%)',
+                        }}
+                    />
 
                     {/* Background Aurora Effect */}
                     <div className="absolute inset-x-0 bottom-0 h-3/4 pointer-events-none opacity-60">
@@ -353,18 +373,16 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                                     animate={{ y: 0, opacity: 1 }}
                                     className="text-center mb-8 w-full px-4"
                                 >
-                                    {coverImageUrl && (
-                                        <div className="mb-4 w-full flex justify-center">
-                                            <div className="w-full max-w-xl rounded-2xl overflow-hidden border border-cyan-100/20 shadow-[0_12px_35px_rgba(0,0,0,0.45)]">
-                                                <img
-                                                    src={coverImageUrl}
-                                                    alt="Weekly Radio Cover"
-                                                    className="w-full h-36 sm:h-44 object-cover"
-                                                    loading="lazy"
-                                                />
-                                            </div>
+                                    <div className="mb-4 w-full flex justify-center">
+                                        <div className="w-full max-w-xl rounded-2xl overflow-hidden border border-cyan-100/20 shadow-[0_12px_35px_rgba(0,0,0,0.45)]">
+                                            <img
+                                                src={coverImageUrl}
+                                                alt="Weekly Radio Cover"
+                                                className="w-full h-36 sm:h-44 object-cover"
+                                                loading="lazy"
+                                            />
                                         </div>
-                                    )}
+                                    </div>
                                     <div className="inline-flex items-center px-3 py-1.5 mb-4 rounded-full bg-white/5 border border-white/15 gap-2">
                                         <span className={`text-[8px] font-bold tracking-widest uppercase ${isNew ? 'text-cyan-200' : 'text-white/45'}`}>
                                             {isNew ? '● NEW BROADCAST' : '● RECORDED SESSION'}
@@ -408,7 +426,12 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                                         >
                                             <div className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-b from-cyan-100/15 to-transparent border border-cyan-100/20 flex items-center justify-center text-4xl sm:text-5xl shadow-2xl relative overflow-hidden ${isPlaying ? 'ring-2 ring-cyan-200/30 ring-offset-4 ring-offset-[#040914] transition-all' : ''}`}>
                                                 <Disc3 size={66} className={`absolute text-white/10 ${isPlaying ? 'animate-spin [animation-duration:6s]' : ''}`} />
-                                                <span className="drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] relative">{person.emoji}</span>
+                                                <img
+                                                    src={hostVisuals[person.name as keyof typeof hostVisuals]}
+                                                    alt={`${person.name} visual`}
+                                                    className="absolute inset-0 w-full h-full object-cover opacity-80"
+                                                />
+                                                <span className="drop-shadow-[0_0_10px_rgba(255,255,255,0.4)] relative">{person.emoji}</span>
                                                 {isPlaying && (
                                                     <motion.div
                                                         className="absolute -right-1 -top-1 w-6 h-6 rounded-full bg-red-500 border-2 border-[#050710] flex items-center justify-center"

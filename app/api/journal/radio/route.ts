@@ -6,6 +6,7 @@ import { getKieApiClient } from '@/lib/keiapi/client';
 
 const CACHE_PREFIX = 'tarot-journal:radio-cache:';
 const RADIO_CACHE_TTL_SEC = 60 * 60 * 24 * 3; // 3 days
+const DEFAULT_COVER_IMAGE_URL = '/icon-options/george_illustrative.png';
 
 export async function POST(req: NextRequest) {
     try {
@@ -32,31 +33,16 @@ export async function POST(req: NextRequest) {
         // 3. Check Cache
         const journalIds = journals.map(j => j.id).sort().join(',');
         const cacheKey = `${CACHE_PREFIX}${userId}`;
-        const cached = await redis.get<{ script: any, audioUrl: string, coverImageUrl?: string, journalIds: string, startDate: string, endDate: string }>(cacheKey);
+        const cached = await redis.get<{ script: any, audioUrl: string, journalIds: string, startDate: string, endDate: string }>(cacheKey);
 
         if (cached && cached.journalIds === journalIds) {
-            let coverImageUrl = cached.coverImageUrl || null;
-            if (!coverImageUrl) {
-                try {
-                    const client = getKieApiClient();
-                    coverImageUrl = await client.generateWeeklyRadioCover(
-                        cached.script?.title || "Weekly George's Radio",
-                        cached.script?.subtitle || 'Weekly Focus Session',
-                        userName
-                    );
-                    await redis.set(cacheKey, { ...cached, coverImageUrl });
-                    await redis.expire(cacheKey, RADIO_CACHE_TTL_SEC);
-                } catch (err) {
-                    console.warn('[radio] cached cover generation failed:', err);
-                }
-            }
             return NextResponse.json({
                 success: true,
                 title: cached.script.title,
                 subtitle: cached.script.subtitle,
                 script: cached.script.lines,
                 audioUrl: cached.audioUrl,
-                coverImageUrl: coverImageUrl,
+                coverImageUrl: DEFAULT_COVER_IMAGE_URL,
                 startDate: cached.startDate || startDate,
                 endDate: cached.endDate || endDate,
                 isNew: false,
@@ -66,18 +52,12 @@ export async function POST(req: NextRequest) {
         // 4. Generate Radio Script
         const script = await generateWeeklyRadioScript(userId, userName || 'お客様', journals);
 
-        // 5. Generate Audio and Radio Cover via Kie AI
+        // 5. Generate Audio via Kie AI
         const client = getKieApiClient();
-        const [audioUrl, coverImageUrl] = await Promise.all([
-            client.generateDialogue(script.lines),
-            client.generateWeeklyRadioCover(script.title, script.subtitle, userName).catch((err) => {
-                console.warn('[radio] cover generation failed:', err);
-                return null;
-            }),
-        ]);
+        const audioUrl = await client.generateDialogue(script.lines);
 
         // 6. Save to Cache
-        await redis.set(cacheKey, { script, audioUrl, coverImageUrl, journalIds, startDate, endDate });
+        await redis.set(cacheKey, { script, audioUrl, journalIds, startDate, endDate });
         await redis.expire(cacheKey, RADIO_CACHE_TTL_SEC);
 
         return NextResponse.json({
@@ -86,7 +66,7 @@ export async function POST(req: NextRequest) {
             subtitle: script.subtitle,
             script: script.lines,
             audioUrl: audioUrl,
-            coverImageUrl: coverImageUrl || null,
+            coverImageUrl: DEFAULT_COVER_IMAGE_URL,
             startDate,
             endDate,
             isNew: true,
