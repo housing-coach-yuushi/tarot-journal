@@ -237,16 +237,27 @@ export async function getJournalsFromMonday(userId: string): Promise<JournalEntr
 
 /**
  * Get journal entries within the past N days from today
+ * Directly checks each date instead of relying on index
  */
 export async function getJournalsFromPastDays(userId: string, days: number = 7): Promise<JournalEntry[]> {
+  const entries: JournalEntry[] = [];
   const today = new Date();
   const jstToday = new Date(today.getTime() + (9 * 60 * 60 * 1000));
 
-  const pastDate = new Date(jstToday);
-  pastDate.setDate(pastDate.getDate() - days);
-  const startDate = pastDate.toISOString().split('T')[0];
+  // Check each date in range directly
+  for (let i = 0; i < days; i++) {
+    const date = new Date(jstToday);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    
+    const entry = await getJournalByDate(userId, dateStr);
+    if (entry && entry.messages.length > 0) {
+      entries.push(entry);
+    }
+  }
 
-  return getJournalsFromDate(userId, startDate);
+  // Sort by date ascending (oldest first)
+  return entries.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**
