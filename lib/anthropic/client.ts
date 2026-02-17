@@ -1,26 +1,6 @@
-import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
 export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
-}
-
-interface OpenClawConfig {
-    env?: {
-        ZAI_API_KEY?: string;
-    };
-    models?: {
-        providers?: Record<string, { baseUrl?: string }>;
-    };
-    agents?: {
-        defaults?: {
-            model?: {
-                primary?: string;
-            };
-        };
-    };
 }
 
 type GlmRuntime = {
@@ -29,38 +9,10 @@ type GlmRuntime = {
     baseUrls: string[];
 };
 
-function splitProviderModel(input: string): { provider: string; model: string } {
-    if (input.includes('/')) {
-        const [provider, ...rest] = input.split('/');
-        return { provider, model: rest.join('/') };
-    }
-    return { provider: 'zai', model: input };
-}
-
-async function loadOpenClawConfig(): Promise<OpenClawConfig | null> {
-    try {
-        const configPath = process.env.OPENCLAW_CONFIG_PATH || join(homedir(), '.openclaw', 'openclaw.json');
-        const raw = await readFile(configPath, 'utf8');
-        return JSON.parse(raw) as OpenClawConfig;
-    } catch {
-        return null;
-    }
-}
-
-function normalizeProviderId(input: string): string {
-    return input.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function resolveZaiBaseUrlFromConfig(config: OpenClawConfig | null): string | null {
-    const providers = config?.models?.providers;
-    if (!providers) return null;
-
-    for (const [providerId, value] of Object.entries(providers)) {
-        if (normalizeProviderId(providerId) === 'zai' && typeof value?.baseUrl === 'string' && value.baseUrl.trim()) {
-            return value.baseUrl.trim();
-        }
-    }
-    return null;
+function normalizeModelId(input: string): string {
+    const model = input.trim();
+    if (!model) return 'glm-5';
+    return model.startsWith('zai/') ? model.slice(4) : model;
 }
 
 function uniqueUrls(urls: string[]): string[] {
@@ -77,31 +29,16 @@ function uniqueUrls(urls: string[]): string[] {
 }
 
 async function resolveGlmRuntime(modelOverride?: string): Promise<GlmRuntime> {
-    const openClawConfig = await loadOpenClawConfig();
-
-    const modelSource =
-        modelOverride ||
-        process.env.GLM_MODEL ||
-        process.env.OPENCLAW_MODEL ||
-        openClawConfig?.agents?.defaults?.model?.primary ||
-        'zai/glm-5';
-
-    const { provider, model } = splitProviderModel(modelSource);
-    if (provider !== 'zai') {
-        throw new Error(`Unsupported OpenClaw provider "${provider}". Only "zai" is supported in this app.`);
-    }
-
-    const apiKey = process.env.ZAI_API_KEY || openClawConfig?.env?.ZAI_API_KEY;
+    const model = normalizeModelId(modelOverride || process.env.GLM_MODEL || process.env.OPENCLAW_MODEL || 'glm-5');
+    const apiKey = process.env.ZAI_API_KEY;
     if (!apiKey) {
-        throw new Error('ZAI_API_KEY is not configured (and not found in ~/.openclaw/openclaw.json)');
+        throw new Error('ZAI_API_KEY is not configured');
     }
 
     const explicitBaseUrl = (process.env.ZAI_API_BASE_URL || '').trim();
-    const configBaseUrl = resolveZaiBaseUrlFromConfig(openClawConfig);
     const baseUrls = explicitBaseUrl
         ? [explicitBaseUrl]
         : uniqueUrls([
-            configBaseUrl || '',
             // Subscriptions often work on coding endpoints, so prefer them first.
             'https://api.z.ai/api/coding/paas/v4',
             'https://open.bigmodel.cn/api/coding/paas/v4',
