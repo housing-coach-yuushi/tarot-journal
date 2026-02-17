@@ -11,7 +11,8 @@
       "Bash(npx next build)",
       "Bash(python3:*)",
       "Bash(gcloud config get-value:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npx next build:*)"
     ]
   }
 }

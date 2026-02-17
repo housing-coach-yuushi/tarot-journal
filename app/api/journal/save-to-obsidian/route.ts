@@ -3,8 +3,9 @@ import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 
-// Obsidian vault path (iCloud)
-const OBSIDIAN_DAILY_PATH = '/Users/yuushinakashima/Library/Mobile Documents/iCloud~md~obsidian/Documents/second-brain/daily';
+// Obsidian vault path (Windows iCloud)
+const HOME_DIR = process.env.USERPROFILE || 'C:\\Users\\y-nakashima';
+const OBSIDIAN_DAILY_PATH = process.env.OBSIDIAN_VAULT_PATH || path.join(HOME_DIR, 'iCloudDrive/iCloud~md~obsidian/second-brain/daily');
 
 export async function POST(request: NextRequest) {
     try {
@@ -18,6 +19,9 @@ export async function POST(request: NextRequest) {
         const dateStr = date || new Date().toISOString().split('T')[0];
 
         // Create markdown content (Obsidian style)
+        const finalUserName = userName || 'わたし';
+        const finalAiName = aiName || 'ジョージ';
+
         const markdownContent = `---
 title: "${title}"
 date: ${dateStr}
@@ -33,7 +37,7 @@ tags:
 ${summary || '（要約なし）'}
 
 ## 対話履歴
-${messages.map((m: any) => `### ${m.role === 'user' ? (userName || 'わたし') : (aiName || 'ジョージ')}\n${m.content}`).join('\n\n')}
+${messages.map((m: any) => `### ${m.role === 'user' ? finalUserName : finalAiName}\n${m.content}`).join('\n\n')}
 `;
 
         // Ensure directory exists

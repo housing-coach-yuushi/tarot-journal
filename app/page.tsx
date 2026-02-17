@@ -336,8 +336,10 @@ export default function Home() {
     if (version !== ttsVersionRef.current) return false;
     if (!audioRef.current) throw new Error('audio element missing');
 
+    const contentType = response.headers.get('content-type') || '';
     const audioBlob = await response.blob();
     if (version !== ttsVersionRef.current) return false;
+    log(`TTS blob: ${audioBlob.size} bytes (${contentType || 'unknown'})`);
 
     const nextUrl = URL.createObjectURL(audioBlob);
     const audio = audioRef.current;
@@ -373,6 +375,7 @@ export default function Home() {
     audio.setAttribute('playsinline', 'true');
     audio.muted = false;
     audio.volume = 1;
+    audio.playbackRate = 1;
     audio.preload = 'auto';
     audio.src = nextUrl;
     audio.currentTime = 0;
@@ -380,6 +383,24 @@ export default function Home() {
     setIsGeneratingAudio(false);
     try {
       await audio.play();
+      // Watchdog: on iOS/Safari, play() can resolve but audio stays stuck (no time progress).
+      // Detect and retry once with an unlock attempt.
+      await new Promise(resolve => window.setTimeout(resolve, 600));
+      if (version !== ttsVersionRef.current) return false;
+      const stuck = audio.paused || audio.currentTime <= 0;
+      if (stuck) {
+        log(`TTS stuck detected (paused=${audio.paused}, t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
+        const unlocked = await unlockAudio();
+        if (version !== ttsVersionRef.current) return false;
+        if (unlocked) {
+          if (audio.src !== nextUrl) audio.src = nextUrl;
+          audio.currentTime = 0;
+          audio.muted = false;
+          audio.volume = 1;
+          audio.playbackRate = 1;
+          await audio.play();
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const lowered = message.toLowerCase();
@@ -393,6 +414,7 @@ export default function Home() {
           audio.currentTime = 0;
           audio.muted = false;
           audio.volume = 1;
+          audio.playbackRate = 1;
           await audio.play();
         } else {
           throw new Error(`play blocked: ${message}`);
@@ -1696,6 +1718,33 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       </div>
       <audio
         ref={audioRef}
+        onPlay={() => {
+          const audio = audioRef.current;
+          if (!audio) return;
+          log(`audio onPlay (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
+        }}
+        onPlaying={() => {
+          const audio = audioRef.current;
+          if (!audio) return;
+          log(`audio onPlaying (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
+        }}
+        onPause={() => {
+          const audio = audioRef.current;
+          if (!audio) return;
+          // Avoid spam when stopTTS intentionally clears.
+          if (suppressAudioErrorRef.current) return;
+          log(`audio onPause (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
+        }}
+        onWaiting={() => {
+          const audio = audioRef.current;
+          if (!audio) return;
+          log(`audio onWaiting (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
+        }}
+        onStalled={() => {
+          const audio = audioRef.current;
+          if (!audio) return;
+          log(`audio onStalled (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
+        }}
         onEnded={() => {
           setIsSpeaking(false);
           const audio = audioRef.current;
