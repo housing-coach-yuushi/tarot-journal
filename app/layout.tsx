@@ -24,8 +24,15 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   themeColor: "#000000",
   icons: {
-    icon: "/icon.png",
-    apple: "/apple-touch-icon.png",
+    icon: [
+      { url: "/icon-192-v2.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512-v2.png", sizes: "512x512", type: "image/png" },
+      { url: "/icon.png", sizes: "2048x2048", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon-v2.png", sizes: "180x180", type: "image/png" },
+      { url: "/apple-touch-icon.png", sizes: "2048x2048", type: "image/png" },
+    ],
   },
   appleWebApp: {
     capable: true,
