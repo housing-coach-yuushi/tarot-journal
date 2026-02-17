@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        // Call Claude API instead of Kie.ai
+        // Call GLM via OpenClaw-aligned configuration
         let response = await chatWithClaude(messages);
 
         // Parse identity_data block if present (for AI bootstrap)
