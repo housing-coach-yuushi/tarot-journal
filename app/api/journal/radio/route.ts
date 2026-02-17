@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { redis, getUserProfile } from '@/lib/db/redis';
+import { redis, getUserProfile, resolveCanonicalUserId } from '@/lib/db/redis';
 import { getJournalsFromPastDays } from '@/lib/journal/storage';
 import { generateWeeklyRadioScript } from '@/lib/journal/radio_script_generator';
 import { getKieApiClient } from '@/lib/keiapi/client';
@@ -10,11 +10,12 @@ const DEFAULT_COVER_IMAGE_URL = '/icon-options/george_illustrative.png';
 
 export async function POST(req: NextRequest) {
     try {
-        const { userId, userName: providedName } = await req.json();
+        const { userId: rawUserId, userName: providedName } = await req.json();
 
-        if (!userId) {
+        if (!rawUserId || typeof rawUserId !== 'string' || !rawUserId.trim()) {
             return NextResponse.json({ error: 'UserId is required' }, { status: 400 });
         }
+        const userId = await resolveCanonicalUserId(rawUserId.trim());
 
         // Fetch real user name from profile if available
         const profile = await getUserProfile(userId);

@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatWithClaude } from '@/lib/anthropic/client';
-import { getUserProfile, getAIIdentity } from '@/lib/db/redis';
+import { getUserProfile, getAIIdentity, resolveCanonicalUserId } from '@/lib/db/redis';
 
 export async function POST(request: NextRequest) {
     try {
-        const { messages, userId = 'default' } = await request.json();
+        const { messages, userId: rawUserId = 'default' } = await request.json();
+        const forcedUserId = (process.env.FORCE_USER_ID || '').trim();
+        const normalizedUserId = typeof rawUserId === 'string' && rawUserId.trim() && rawUserId !== 'default'
+            ? rawUserId.trim()
+            : null;
+        const userId = normalizedUserId
+            ? await resolveCanonicalUserId(normalizedUserId)
+            : (forcedUserId || 'default');
 
         if (!messages || !Array.isArray(messages) || messages.length === 0) {
             return NextResponse.json({ error: 'Messages are required' }, { status: 400 });

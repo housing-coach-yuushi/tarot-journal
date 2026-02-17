@@ -280,7 +280,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
             const response = await fetch('/api/journal/format-share', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages }),
+                body: JSON.stringify({ userId, messages }),
             });
 
             let shareTitle = currentSession.title || '今日のラジオ';

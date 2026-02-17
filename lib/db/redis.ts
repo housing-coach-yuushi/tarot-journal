@@ -23,6 +23,15 @@ const redis = new Redis({
 
 // Key prefixes for this app
 const PREFIX = 'tarot-journal:';
+const USER_ALIAS_PREFIX = `${PREFIX}user-alias:`;
+const FORCED_USER_ID = (process.env.FORCE_USER_ID || '').trim();
+
+function normalizeId(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const id = raw.trim();
+    if (!id || id === 'default') return null;
+    return id;
+}
 
 export interface AIIdentity {
     name: string;
@@ -49,6 +58,35 @@ export interface ConversationHistory {
         content: string;
         timestamp: string;
     }>;
+}
+
+/**
+ * Resolve a possibly-fragmented userId to a canonical userId.
+ * - If FORCE_USER_ID is set, always use it (single-user mode).
+ * - Otherwise, resolve via Redis alias mapping.
+ */
+export async function resolveCanonicalUserId(userId: string): Promise<string> {
+    const normalized = normalizeId(userId);
+    if (!normalized) {
+        throw new Error('Invalid userId');
+    }
+
+    if (FORCED_USER_ID) {
+        return FORCED_USER_ID;
+    }
+
+    const alias = await redis.get<string>(`${USER_ALIAS_PREFIX}${normalized}`);
+    const resolved = normalizeId(alias);
+    return resolved || normalized;
+}
+
+export async function setUserIdAlias(sourceUserId: string, canonicalUserId: string): Promise<void> {
+    const source = normalizeId(sourceUserId);
+    const canonical = normalizeId(canonicalUserId);
+    if (!source || !canonical || source === canonical) {
+        return;
+    }
+    await redis.set(`${USER_ALIAS_PREFIX}${source}`, canonical);
 }
 
 const HISTORY_MAX = 100;
@@ -133,12 +171,30 @@ export async function getConversationHistory(userId: string, limit = 50): Promis
     if (!raw || raw.length === 0) return { messages: [] };
 
     const parsed = raw
-        .map(item => {
-            try {
-                return JSON.parse(item) as ConversationHistory['messages'][number];
-            } catch {
-                return null;
+        .map((item): ConversationHistory['messages'][number] | null => {
+            if (typeof item === 'string') {
+                try {
+                    return JSON.parse(item) as ConversationHistory['messages'][number];
+                } catch {
+                    return null;
+                }
             }
+            if (typeof item === 'object' && item !== null) {
+                const candidate = item as { role?: unknown; content?: unknown; timestamp?: unknown };
+                if (
+                    (candidate.role === 'user' || candidate.role === 'assistant')
+                    && typeof candidate.content === 'string'
+                ) {
+                    return {
+                        role: candidate.role,
+                        content: candidate.content,
+                        timestamp: typeof candidate.timestamp === 'string'
+                            ? candidate.timestamp
+                            : new Date().toISOString(),
+                    };
+                }
+            }
+            return null;
         })
         .filter(Boolean) as ConversationHistory['messages'];
 

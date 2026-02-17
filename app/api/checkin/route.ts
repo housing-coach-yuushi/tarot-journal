@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatWithClaude } from '@/lib/anthropic/client';
-import { getUserProfile, getConversationHistory } from '@/lib/db/redis';
+import { getUserProfile, getConversationHistory, resolveCanonicalUserId } from '@/lib/db/redis';
 
 function normalizeUserId(raw: string | null): string | null {
   if (!raw) return null;
@@ -63,7 +63,8 @@ const CHECKIN_PROMPT = `あなたはタロットジャーナルアプリのチ�
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const userId = normalizeUserId(searchParams.get('userId'));
+    const rawUserId = normalizeUserId(searchParams.get('userId'));
+    const userId = rawUserId ? await resolveCanonicalUserId(rawUserId) : null;
 
     // Use Tokyo timezone (JST) for all date/time calculations
     const now = new Date();

@@ -7,11 +7,20 @@ import {
     getStreak,
     updateJournal,
 } from '@/lib/journal/storage';
+import { resolveCanonicalUserId } from '@/lib/db/redis';
+
+function resolveRequestUserId(raw: unknown): Promise<string> | string {
+    const forced = (process.env.FORCE_USER_ID || '').trim();
+    if (typeof raw !== 'string') return forced || 'default';
+    const userId = raw.trim();
+    if (!userId || userId === 'default') return forced || 'default';
+    return resolveCanonicalUserId(userId);
+}
 
 // GET - Get journal data
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId') || 'default';
+    const userId = await resolveRequestUserId(searchParams.get('userId'));
     const date = searchParams.get('date');
     const action = searchParams.get('action');
 
@@ -62,7 +71,8 @@ export async function GET(request: NextRequest) {
 // PATCH - Update journal (summary, mood, etc.)
 export async function PATCH(request: NextRequest) {
     try {
-        const { userId = 'default', date, summary, mood } = await request.json();
+        const { userId: rawUserId = 'default', date, summary, mood } = await request.json();
+        const userId = await resolveRequestUserId(rawUserId);
 
         if (!date) {
             return NextResponse.json(

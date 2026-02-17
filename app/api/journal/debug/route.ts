@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getJournalDates, getJournalByDate } from '@/lib/journal/storage';
+import { resolveCanonicalUserId } from '@/lib/db/redis';
 
 export async function GET(req: NextRequest) {
     const { searchParams } = req.nextUrl;
-    const userId = searchParams.get('userId');
+    const rawUserId = searchParams.get('userId');
 
-    if (!userId) {
+    if (!rawUserId) {
         return NextResponse.json({ error: 'UserId is required' }, { status: 400 });
     }
 
     try {
+        const userId = await resolveCanonicalUserId(rawUserId);
         const dates = await getJournalDates(userId);
         const entries = [];
 

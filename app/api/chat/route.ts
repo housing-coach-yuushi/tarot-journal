@@ -12,7 +12,7 @@ import {
     loadIdentity,
     loadUser
 } from '@/lib/clawdbot/bootstrap';
-import { addToConversationHistory, getConversationHistory } from '@/lib/db/redis';
+import { addToConversationHistory, getConversationHistory, resolveCanonicalUserId } from '@/lib/db/redis';
 import { addMessage } from '@/lib/journal/storage';
 import { getVoiceIdByName, DEFAULT_VOICE_ID } from '@/lib/tts/voices';
 
@@ -26,10 +26,11 @@ function normalizeUserId(raw: unknown): string | null {
 export async function POST(request: NextRequest) {
     try {
         const { message, history = [], saveData, userId: rawUserId } = await request.json();
-        const userId = normalizeUserId(rawUserId);
-        if (!userId) {
+        const normalizedUserId = normalizeUserId(rawUserId);
+        if (!normalizedUserId) {
             return NextResponse.json({ error: 'Invalid userId' }, { status: 400 });
         }
+        const userId = await resolveCanonicalUserId(normalizedUserId);
         console.log(`[API/CHAT] Incoming request: message="${message?.substring(0, 20)}", userId=${userId}`);
 
         // Handle data saving (for bootstrap completion)
@@ -181,10 +182,11 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
-        const userId = normalizeUserId(searchParams.get('userId'));
-        if (!userId) {
+        const normalizedUserId = normalizeUserId(searchParams.get('userId'));
+        if (!normalizedUserId) {
             return NextResponse.json({ error: 'Invalid userId' }, { status: 400 });
         }
+        const userId = await resolveCanonicalUserId(normalizedUserId);
 
         const isBootstrapped = await isBootstrapComplete();
         const userOnboarded = await isUserOnboarded(userId);

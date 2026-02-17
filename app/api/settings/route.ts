@@ -10,13 +10,21 @@ import {
     updateAIIdentity,
     getUserProfile,
     updateUserProfile,
+    resolveCanonicalUserId,
 } from '@/lib/db/redis';
 import { JAPANESE_VOICES, getVoiceById } from '@/lib/tts/voices';
 
 // GET: Retrieve current settings
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
+    const rawUserId = searchParams.get('userId');
+    const forcedUserId = (process.env.FORCE_USER_ID || '').trim();
+    const normalizedUserId = rawUserId && rawUserId.trim() && rawUserId !== 'default'
+        ? rawUserId.trim()
+        : null;
+    const userId = normalizedUserId
+        ? await resolveCanonicalUserId(normalizedUserId)
+        : (forcedUserId || null);
 
     try {
         const identity = await getAIIdentity();
@@ -54,7 +62,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { userId, aiName, userName, voiceId, showDebug, bgmEnabled } = body;
+        const { userId: rawUserId, aiName, userName, voiceId, showDebug, bgmEnabled } = body;
+        const forcedUserId = (process.env.FORCE_USER_ID || '').trim();
+        const normalizedUserId = typeof rawUserId === 'string' && rawUserId.trim() && rawUserId !== 'default'
+            ? rawUserId.trim()
+            : null;
+        const userId = normalizedUserId
+            ? await resolveCanonicalUserId(normalizedUserId)
+            : (forcedUserId || null);
 
         const updates: Record<string, unknown> = {};
 

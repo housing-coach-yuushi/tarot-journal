@@ -3,11 +3,19 @@ import {
     deleteAIIdentity,
     deleteUserProfile,
     clearConversationHistory,
+    resolveCanonicalUserId,
 } from '@/lib/db/redis';
 
 export async function POST(request: NextRequest) {
     try {
-        const { userId = 'default', resetType = 'all' } = await request.json();
+        const { userId: rawUserId = 'default', resetType = 'all' } = await request.json();
+        const forcedUserId = (process.env.FORCE_USER_ID || '').trim();
+        const normalizedUserId = typeof rawUserId === 'string' && rawUserId.trim() && rawUserId !== 'default'
+            ? rawUserId.trim()
+            : null;
+        const userId = normalizedUserId
+            ? await resolveCanonicalUserId(normalizedUserId)
+            : (forcedUserId || 'default');
 
         // resetType: 'all' | 'ai' | 'user'
         if (resetType === 'all' || resetType === 'ai') {

@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatWithClaude } from '@/lib/anthropic/client';
 import { updateJournal, getTodayDate } from '@/lib/journal/storage';
-import { getUserProfile, getAIIdentity } from '@/lib/db/redis';
+import { getUserProfile, getAIIdentity, resolveCanonicalUserId } from '@/lib/db/redis';
 
 export async function POST(request: NextRequest) {
     try {
         const { messages, userId: rawUserId } = await request.json();
-        const userId = (typeof rawUserId === 'string' && rawUserId.trim() && rawUserId !== 'default')
+        const normalizedUserId = (typeof rawUserId === 'string' && rawUserId.trim() && rawUserId !== 'default')
             ? rawUserId.trim()
             : null;
 
-        if (!userId) {
+        if (!normalizedUserId) {
             return NextResponse.json({ error: 'Invalid userId' }, { status: 400 });
         }
+        const userId = await resolveCanonicalUserId(normalizedUserId);
 
         if (!messages || !Array.isArray(messages) || messages.length === 0) {
             return NextResponse.json({ error: 'Messages are required' }, { status: 400 });

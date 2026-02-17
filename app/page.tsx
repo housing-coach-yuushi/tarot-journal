@@ -998,6 +998,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          userId: resolveUserId(),
           messages: messages.map(m => ({
             role: m.role,
             content: m.content,
