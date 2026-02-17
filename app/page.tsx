@@ -92,6 +92,7 @@ export default function Home() {
   const [isSharing, setIsSharing] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [userId, setUserId] = useState<string>('default');
   const [showSettings, setShowSettings] = useState(false);
@@ -104,8 +105,6 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
   const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
   const [isShuffleOpen, setIsShuffleOpen] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -347,30 +346,8 @@ export default function Home() {
       URL.revokeObjectURL(audio.src);
     }
 
-    // Set up AudioContext for volume boosting
-    if (!audioContextRef.current && typeof window !== 'undefined') {
-      try {
-        const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
-        if (AudioContextClass) {
-          const ctx = new AudioContextClass();
-          audioContextRef.current = ctx;
-          const source = ctx.createMediaElementSource(audio);
-          const gain = ctx.createGain();
-          gain.gain.value = 2.0; // Boost volume (2.0 = +6dB approx)
-          gainNodeRef.current = gain;
-          source.connect(gain);
-          gain.connect(ctx.destination);
-          log('オーディオ・ブースター有効化 (Gain: 2.0)');
-        }
-      } catch (e) {
-        console.warn('AudioContext setup failed:', e);
-      }
-    }
-
-    // Ensure context is running (required for many browsers after a period of silence)
-    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-      void audioContextRef.current.resume();
-    }
+    // Keep direct HTMLAudioElement playback path.
+    // AudioContext routing can become suspended on Safari/iOS and result in "playing but silent".
 
     audio.setAttribute('playsinline', 'true');
     audio.muted = false;
@@ -448,8 +425,7 @@ export default function Home() {
       const message = (error as Error).message || 'unknown';
       const lower = message.toLowerCase();
       const isPlaybackBlocked =
-        message.includes('AudioContext')
-        || message.includes('未初期化')
+        message.includes('未初期化')
         || lower.includes('notallowed')
         || lower.includes('gesture')
         || lower.includes('play blocked');
@@ -1304,9 +1280,12 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
         currentAiName={bootstrap.identity?.name || ''}
         currentUserName={bootstrap.user?.name || bootstrap.user?.callName || ''}
         currentVoiceId={bootstrap.identity?.voiceId || ''}
-        currentShowDebug={bootstrap.identity?.showDebug || false}
+        currentShowDebug={showDebug}
         currentBgmEnabled={bootstrap.identity?.bgmEnabled || false}
         onSave={(settings) => {
+          if (settings.showDebug !== undefined) {
+            setShowDebug(settings.showDebug);
+          }
           // Update local bootstrap state with new values
           if (settings.aiName || settings.voiceId || settings.showDebug !== undefined || settings.bgmEnabled !== undefined) {
             setBootstrap(prev => ({
@@ -1315,7 +1294,6 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
                 ...(prev.identity || {}),
                 name: settings.aiName || prev.identity?.name,
                 voiceId: settings.voiceId || prev.identity?.voiceId,
-                showDebug: settings.showDebug !== undefined ? settings.showDebug : prev.identity?.showDebug,
                 bgmEnabled: settings.bgmEnabled !== undefined ? settings.bgmEnabled : prev.identity?.bgmEnabled
               }
             }));
@@ -1525,7 +1503,7 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       )}
 
       {/* Debug Log - Only visible when enabled in settings or in development by default */}
-      {bootstrap.identity?.showDebug === true && (
+      {showDebug === true && (
         <div className="absolute top-[65px] left-4 z-50 pointer-events-none max-w-[250px]">
           <div className="bg-black/60 backdrop-blur-md rounded-md p-2 font-mono text-[10px] sm:text-[12px] text-green-400 border border-green-500/20">
             <div className="flex gap-2 mb-1 border-b border-white/10 pb-1">

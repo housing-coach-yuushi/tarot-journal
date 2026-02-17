@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, Radio, Plus, Trash2, Clock, ChevronRight, ArrowLeft, Share2 } from 'lucide-react';
+import { Play, Pause, Radio, Plus, Trash2, Clock, ChevronRight, ArrowLeft, Share2, SkipForward, SkipBack, Disc3, Mic2, Signal, Volume2 } from 'lucide-react';
 import GlowVisualizer from './GlowVisualizer';
 
 // Types
@@ -62,6 +62,9 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const [currentLineIndex, setCurrentLineIndex] = useState(0);
     const [audioLevel, setAudioLevel] = useState(0);
     const [progress, setProgress] = useState(0);
+    const [isAudioReady, setIsAudioReady] = useState(false);
+    const [currentTimeSec, setCurrentTimeSec] = useState(0);
+    const [durationSec, setDurationSec] = useState(0);
 
     // Refs
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -69,6 +72,13 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const animationFrameRef = useRef<number | null>(null);
+
+    const eqBars = [0.35, 0.6, 0.45, 0.8, 0.5, 0.65, 0.42, 0.72];
+    const coverImageUrl = '/icon-options/george_illustrative.png';
+    const hostVisuals = {
+        George: '/icon-options/mystic_gold_mic_v2.png',
+        Aria: '/icon-options/apple_voice_tarot.png',
+    } as const;
 
     // Load sessions on mount
     useEffect(() => {
@@ -79,53 +89,36 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         }
     }, [isOpen]);
 
-    // --- Audio Logic ---
-
-    const setupAudioAnalyser = useCallback(() => {
-        if (!audioRef.current || !currentSession?.audioUrl) return;
-
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        }
-        const audioContext = audioContextRef.current;
-
-        if (!sourceNodeRef.current) {
-            try {
-                const source = audioContext.createMediaElementSource(audioRef.current);
-                sourceNodeRef.current = source;
-                
-                const analyzer = audioContext.createAnalyser();
-                analyzer.fftSize = 256;
-                source.connect(analyzer);
-                analyzer.connect(audioContext.destination);
-                analyzerRef.current = analyzer;
-            } catch (e) {
-                console.error("Error setting up audio source:", e);
-                return;
-            }
-        }
-
-        const updateLevel = () => {
-            if (analyzerRef.current && isPlaying) {
-                const dataArray = new Uint8Array(analyzerRef.current.frequencyBinCount);
-                analyzerRef.current.getByteFrequencyData(dataArray);
-                const average = dataArray.reduce((sum, val) => sum + val, 0) / dataArray.length;
-                setAudioLevel(average / 150);
-            } else {
-                setAudioLevel(0);
-            }
-            animationFrameRef.current = requestAnimationFrame(updateLevel);
-        };
-
-        updateLevel();
-    }, [currentSession?.audioUrl, isPlaying]);
-
+    // Reset modal state when it closes
     useEffect(() => {
-        setupAudioAnalyser();
+        if (!isOpen) {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.currentTime = 0;
+            }
+            setIsPlaying(false);
+            setCurrentSession(null);
+            setViewMode('list');
+        }
+    }, [isOpen]);
+
+    // Simple reactive level without WebAudio routing
+    useEffect(() => {
+        if (!isPlaying) {
+            setAudioLevel(0);
+            return;
+        }
+        const timer = window.setInterval(() => {
+            setAudioLevel(prev => {
+                const next = prev * 0.7 + Math.random() * 0.35;
+                return Math.max(0.08, Math.min(next, 0.7));
+            });
+        }, 120);
         return () => {
-            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+            window.clearInterval(timer);
+            setAudioLevel(0);
         };
-    }, [setupAudioAnalyser]);
+    }, [isPlaying]);
 
     // Track audio progress
     useEffect(() => {
@@ -133,8 +126,12 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         if (!audio || !currentSession) return;
 
         const handleTimeUpdate = () => {
+            const now = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+            setCurrentTimeSec(now);
+
             if (audio.duration && isFinite(audio.duration)) {
-                const pct = audio.currentTime / audio.duration;
+                setDurationSec(audio.duration);
+                const pct = now / audio.duration;
                 setProgress(pct);
 
                 if (currentSession.script.length > 0) {
@@ -144,28 +141,14 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                     );
                     setCurrentLineIndex(idx);
                 }
+            } else {
+                setProgress(0);
             }
         };
 
         audio.addEventListener('timeupdate', handleTimeUpdate);
         return () => audio.removeEventListener('timeupdate', handleTimeUpdate);
     }, [currentSession]);
-
-    // Reset state when modal closes
-    useEffect(() => {
-        if (!isOpen) {
-            setIsPlaying(false);
-            if (audioRef.current) audioRef.current.pause();
-            if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-            setCurrentSession(null);
-            setViewMode('list');
-        }
-    }, [isOpen]);
-
-    // Reset source node when session changes
-    useEffect(() => {
-        sourceNodeRef.current = null;
-    }, [currentSession?.id]);
 
     // --- Actions ---
 
@@ -181,7 +164,10 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
             });
 
             if (!response.ok) {
-                const data = await response.json();
+                const data = await response.json().catch(() => ({}));
+                if (response.status === 404) {
+                    throw new Error('まだ週次ラジオを作れる日記がありません。先にチェックインを1件以上保存してください。');
+                }
                 throw new Error(data.error || 'ラジオの生成に失敗しました。');
             }
 
@@ -214,6 +200,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
             // Play new session
             setCurrentSession(newSession);
             setViewMode('player');
+            setIsAudioReady(false);
 
             if (onGenerationComplete) {
                 onGenerationComplete(data.title);
@@ -229,6 +216,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         setViewMode('player');
         setProgress(0);
         setCurrentLineIndex(0);
+        setIsAudioReady(false);
     };
 
     const deleteSession = (sessionId: string) => {
@@ -238,18 +226,43 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     };
 
     const togglePlay = async () => {
-        if (!audioRef.current) return;
-
-        if (audioContextRef.current?.state === 'suspended') {
-            await audioContextRef.current.resume();
+        if (!audioRef.current || !currentSession?.audioUrl) {
+            setError('音声データがありません。先に番組を生成してください。');
+            return;
         }
 
         if (isPlaying) {
             audioRef.current.pause();
         } else {
-            audioRef.current.play();
+            setError(null);
+            try {
+                await audioRef.current.play();
+            } catch (err: any) {
+                const msg = err?.message || '音声再生に失敗しました';
+                setError(`再生エラー: ${msg}`);
+            }
         }
-        setIsPlaying(!isPlaying);
+    };
+
+    const playFromStart = async () => {
+        const audio = audioRef.current;
+        if (!audio || !currentSession?.audioUrl) return;
+        audio.currentTime = 0;
+        setError(null);
+        try {
+            await audio.play();
+        } catch (err: any) {
+            const msg = err?.message || '音声再生に失敗しました';
+            setError(`再生エラー: ${msg}`);
+        }
+    };
+
+    const seekBy = (deltaSec: number) => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+        const next = Math.max(0, audio.currentTime + deltaSec);
+        audio.currentTime = duration > 0 ? Math.min(duration, next) : next;
     };
 
     const handleShareSession = async () => {
@@ -302,7 +315,24 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         }
     };
 
-    // --- Render ---
+    const formatTime = (totalSec: number) => {
+        if (!Number.isFinite(totalSec) || totalSec < 0) return '0:00';
+        const seconds = Math.floor(totalSec);
+        const minutes = Math.floor(seconds / 60);
+        const remain = seconds % 60;
+        return `${minutes}:${String(remain).padStart(2, '0')}`;
+    };
+
+    const activeLine = currentSession?.script[currentLineIndex];
+
+    // Reset source node when session changes
+    useEffect(() => {
+        sourceNodeRef.current = null;
+        setIsAudioReady(false);
+        setProgress(0);
+        setCurrentTimeSec(0);
+        setDurationSec(0);
+    }, [currentSession?.id]);
 
     return (
         <AnimatePresence>
@@ -311,29 +341,39 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-[200] bg-black flex flex-col p-6 text-white safe-area-inset overflow-hidden"
+                    className="fixed inset-0 z-[200] flex flex-col p-4 sm:p-6 text-white safe-area-inset overflow-hidden bg-[#02060d]"
                 >
+                    <div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{
+                            background:
+                                'radial-gradient(circle at 15% 20%, rgba(35, 166, 213, 0.22), transparent 38%), radial-gradient(circle at 85% 15%, rgba(99, 102, 241, 0.2), transparent 40%), radial-gradient(circle at 50% 100%, rgba(34, 211, 238, 0.15), transparent 48%)',
+                        }}
+                    />
+                    <div className="absolute inset-0 pointer-events-none star-grid opacity-30" />
+                    <div
+                        className="absolute inset-0 pointer-events-none opacity-25"
+                        style={{
+                            backgroundImage: `url(${coverImageUrl})`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            filter: 'blur(6px) saturate(110%)',
+                        }}
+                    />
+
+                    {/* Background Aurora Effect */}
                     <div className="absolute inset-x-0 bottom-0 h-3/4 pointer-events-none opacity-60">
                         <GlowVisualizer isActive={isPlaying} audioLevel={audioLevel} />
                     </div>
 
                     {/* Header */}
-                    <header className="relative z-10 flex items-center justify-between mb-8">
-                        {viewMode === 'player' ? (
-                            <button
-                                onClick={() => setViewMode('list')}
-                                className="p-2.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10"
-                            >
-                                <ArrowLeft size={20} />
-                            </button>
-                        ) : (
-                            <button
-                                onClick={onClose}
-                                className="p-2.5 rounded-full bg-white/5 hover:bg-white/10 transition-colors border border-white/10"
-                            >
-                                <ArrowLeft size={20} />
-                            </button>
-                        )}
+                    <div className="relative z-10 flex items-center justify-between mb-6 px-3 py-2 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.45)]">
+                        <button
+                            onClick={viewMode === 'player' ? () => setViewMode('list') : onClose}
+                            className="p-2.5 rounded-full bg-white/5 hover:bg-white/15 transition-colors border border-white/10"
+                        >
+                            <ArrowLeft size={20} />
+                        </button>
 
                         <div className="flex flex-col items-center gap-1">
                             <div className="flex items-center gap-2">
@@ -342,25 +382,23 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                                     transition={{ repeat: Infinity, duration: 1.5 }}
                                     className={`w-2 h-2 rounded-full ${isPlaying && viewMode === 'player' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]' : 'bg-white/20'}`}
                                 />
-                                <span className={`text-[10px] font-bold tracking-[0.4em] uppercase mr-[-0.4em] ${isPlaying && viewMode === 'player' ? 'text-white' : 'text-white/30'}`}>
+                                <span className={`text-[10px] font-bold tracking-[0.32em] uppercase mr-[-0.32em] ${isPlaying && viewMode === 'player' ? 'text-cyan-100' : 'text-white/35'}`}>
                                     {isPlaying && viewMode === 'player' ? 'ON AIR' : 'OFF AIR'}
                                 </span>
                             </div>
-                            <span className="text-[8px] font-medium tracking-[0.2em] text-white/20">
-                                {RADIO_CONSTANTS.FREQUENCY} | {RADIO_CONSTANTS.CHANNEL_NAME}
-                            </span>
+                            <span className="text-[8px] font-medium tracking-[0.2em] text-white/30">88.1 MHz | GEORGE'S CHANNEL</span>
                         </div>
 
                         <button
                             onClick={viewMode === 'player' ? handleShareSession : () => setViewMode('confirm')}
-                            className={`p-2.5 rounded-full transition-colors border ${viewMode === 'player' ? 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border-blue-500/20' : 'bg-white/5 hover:bg-white/10 border-white/10'}`}
+                            className="p-2.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 transition-colors border border-cyan-400/30"
                         >
                             {viewMode === 'player' ? <Share2 size={20} /> : <Plus size={20} />}
                         </button>
-                    </header>
+                    </div>
 
                     {/* Main Content */}
-                    <main className="relative z-10 flex-1 flex flex-col items-center max-w-lg mx-auto w-full overflow-hidden">
+                    <div className="relative z-10 flex-1 flex flex-col items-center justify-center max-w-2xl mx-auto w-full">
                         {viewMode === 'list' && (
                             <ListUI
                                 sessions={sessions}
@@ -385,17 +423,50 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                                 currentLineIndex={currentLineIndex}
                                 isPlaying={isPlaying}
                                 progress={progress}
+                                isAudioReady={isAudioReady}
+                                currentTimeSec={currentTimeSec}
+                                durationSec={durationSec}
+                                audioLevel={audioLevel}
+                                activeLine={activeLine}
+                                eqBars={eqBars}
+                                hostVisuals={hostVisuals}
+                                coverImageUrl={coverImageUrl}
                                 onTogglePlay={togglePlay}
+                                onPlayFromStart={playFromStart}
+                                onSeek={seekBy}
                             />
                         )}
-                    </main>
+                    </div>
 
                     <audio
                         ref={audioRef}
                         src={currentSession?.audioUrl || ''}
-                        onEnded={() => setIsPlaying(false)}
+                        preload="auto"
+                        playsInline
+                        onLoadStart={() => {
+                            setIsAudioReady(false);
+                            setCurrentTimeSec(0);
+                        }}
+                        onCanPlay={() => setIsAudioReady(true)}
+                        onLoadedMetadata={() => {
+                            const audio = audioRef.current;
+                            if (!audio) return;
+                            if (Number.isFinite(audio.duration)) {
+                                setDurationSec(audio.duration);
+                            }
+                            setIsAudioReady(true);
+                        }}
+                        onLoadedData={() => setIsAudioReady(true)}
+                        onEnded={() => {
+                            setIsPlaying(false);
+                            setCurrentTimeSec(durationSec);
+                        }}
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
+                        onError={() => {
+                            setIsPlaying(false);
+                            setError('音声の読み込みに失敗しました');
+                        }}
                     />
 
                     <style jsx>{`
@@ -407,6 +478,11 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
                         @keyframes scan { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
                         .scanning-text { animation: scan 1.5s infinite ease-in-out; }
+                        .star-grid {
+                            background-image:
+                                radial-gradient(circle at 1px 1px, rgba(255,255,255,0.12) 1px, transparent 0);
+                            background-size: 26px 26px;
+                        }
                     `}</style>
                 </motion.div>
             )}
@@ -444,79 +520,74 @@ function ListUI({
             </div>
 
             {sessions.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6 border border-white/10">
+                <div className="flex-1 flex flex-col items-center justify-center gap-6">
+                    <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
                         <Radio className="text-white/30" size={32} />
                     </div>
-                    <p className="text-white/40 text-sm mb-6">まだラジオがありません</p>
+                    <div className="text-center space-y-2">
+                        <p className="text-white/60 text-sm">まだ番組がありません</p>
+                        <p className="text-white/30 text-xs">最初の番組を作成してみましょう</p>
+                    </div>
                     <button
                         onClick={onNew}
-                        className="px-8 py-4 rounded-2xl bg-white text-black text-xs font-bold tracking-[0.2em] uppercase hover:bg-white/90 transition-all"
+                        className="px-6 py-3 rounded-full bg-white/10 border border-white/20 text-sm hover:bg-white/20 transition-colors"
                     >
-                        最初の番組を作る
+                        番組を作成
                     </button>
                 </div>
             ) : (
-                <>
-                    <div className="space-y-3 flex-1 overflow-y-auto scrollbar-hide mb-4">
-                        {sessions.map((session) => (
-                            <motion.div
-                                key={session.id}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className="bg-white/5 rounded-2xl border border-white/10 p-4 flex items-center gap-4 group"
-                            >
+                <div className="space-y-3">
+                    {sessions.map((session) => (
+                        <motion.div
+                            key={session.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+                        >
+                            <div className="flex items-start justify-between">
                                 <button
                                     onClick={() => onSelect(session)}
-                                    className="flex-1 flex items-center gap-4 text-left"
+                                    className="flex-1 text-left"
                                 >
-                                    <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
-                                        <Play className="text-blue-400 ml-0.5" size={20} fill="currentColor" />
+                                    <div className="flex items-center gap-2 mb-1">
+                                        {session.isNew && (
+                                            <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-medium">
+                                                NEW
+                                            </span>
+                                        )}
+                                        <span className="text-white/40 text-xs">{formatDate(session.createdAt)}</span>
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h3 className="text-sm font-medium truncate">{session.title}</h3>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <Clock size={10} className="text-white/30" />
-                                            <span className="text-[10px] text-white/30">{formatDate(session.createdAt)}</span>
-                                            {session.dateRange && (
-                                                <span className="text-[10px] text-white/20">{session.dateRange}</span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <ChevronRight size={18} className="text-white/20" />
+                                    <h3 className="text-white font-medium mb-1">{session.title}</h3>
+                                    <p className="text-white/40 text-xs">{session.subtitle}</p>
                                 </button>
                                 <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onDelete(session.id);
-                                    }}
-                                    className="p-2 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-red-400 transition-all"
+                                    onClick={() => onDelete(session.id)}
+                                    className="p-2 rounded-full hover:bg-red-500/20 text-white/30 hover:text-red-400 transition-colors"
                                 >
                                     <Trash2 size={16} />
                                 </button>
-                            </motion.div>
-                        ))}
-                    </div>
-
+                            </div>
+                        </motion.div>
+                    ))}
                     <button
                         onClick={onNew}
-                        className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-white/60 text-xs font-bold tracking-[0.2em] uppercase hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+                        className="w-full p-4 rounded-2xl border border-dashed border-white/20 text-white/40 hover:bg-white/5 hover:text-white/60 transition-colors flex items-center justify-center gap-2"
                     >
-                        <Plus size={16} />
-                        新しい番組を生成
+                        <Plus size={18} />
+                        <span className="text-sm">新しい番組</span>
                     </button>
-                </>
+                </div>
             )}
         </motion.div>
     );
 }
 
-function ConfirmUI({ 
-    onGenerate, 
-    onCancel, 
-    error 
-}: { 
-    onGenerate: () => void; 
+function ConfirmUI({
+    onGenerate,
+    onCancel,
+    error,
+}: {
+    onGenerate: () => void;
     onCancel: () => void;
     error: string | null;
 }) {
@@ -524,10 +595,10 @@ function ConfirmUI({
         <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-center space-y-8 p-8 bg-white/5 rounded-[2.5rem] border border-white/10 backdrop-blur-2xl"
+            className="text-center space-y-8 p-8 bg-white/5 rounded-[2.5rem] border border-white/10 backdrop-blur-2xl shadow-[0_22px_60px_rgba(0,0,0,0.55)] max-w-md"
         >
-            <div className="w-20 h-20 bg-gold-500/10 rounded-full flex items-center justify-center mx-auto border border-gold-500/20">
-                <Radio className="text-gold-400" size={32} />
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto border border-cyan-300/30 bg-cyan-400/10 shadow-[0_0_40px_rgba(34,211,238,0.25)]">
+                <Radio className="text-cyan-200" size={32} />
             </div>
             <div className="space-y-4">
                 <h2 className="text-2xl font-light tracking-tight">Weekly George's Radio</h2>
@@ -540,14 +611,16 @@ function ConfirmUI({
                         生成には1分ほど時間がかかる場合があります。
                     </p>
                 </div>
-                {error && (
-                    <p className="text-red-400/90 text-sm">{error}</p>
-                )}
             </div>
+            {error && (
+                <div className="p-4 bg-red-500/10 rounded-xl border border-red-400/30">
+                    <p className="text-red-200 text-sm">{error}</p>
+                </div>
+            )}
             <div className="flex flex-col gap-3">
                 <button
                     onClick={onGenerate}
-                    className="w-full py-4 rounded-2xl bg-white text-black text-xs font-bold tracking-[0.2em] uppercase hover:bg-white/90 transition-all shadow-[0_0_20px_rgba(255,255,255,0.2)]"
+                    className="w-full py-4 rounded-2xl bg-gradient-to-r from-cyan-200 to-blue-200 text-[#021322] text-xs font-bold tracking-[0.2em] uppercase hover:brightness-110 transition-all shadow-[0_0_24px_rgba(125,211,252,0.5)]"
                 >
                     番組を生成する
                 </button>
@@ -555,7 +628,7 @@ function ConfirmUI({
                     onClick={onCancel}
                     className="w-full py-4 rounded-2xl bg-transparent text-white/40 text-[10px] font-bold tracking-[0.2em] uppercase hover:bg-white/5 transition-all"
                 >
-                    キャンセル
+                    今はやめておく
                 </button>
             </div>
         </motion.div>
@@ -583,123 +656,260 @@ function LoadingUI() {
     );
 }
 
-function PlayerUI({ 
-    session, 
-    currentLineIndex, 
-    isPlaying, 
-    progress, 
-    onTogglePlay 
-}: { 
+function PlayerUI({
+    session,
+    currentLineIndex,
+    isPlaying,
+    progress,
+    isAudioReady,
+    currentTimeSec,
+    durationSec,
+    audioLevel,
+    activeLine,
+    eqBars,
+    hostVisuals,
+    coverImageUrl,
+    onTogglePlay,
+    onPlayFromStart,
+    onSeek,
+}: {
     session: RadioSession;
-    currentLineIndex: number; 
+    currentLineIndex: number;
     isPlaying: boolean;
     progress: number;
+    isAudioReady: boolean;
+    currentTimeSec: number;
+    durationSec: number;
+    audioLevel: number;
+    activeLine: RadioLine | undefined;
+    eqBars: number[];
+    hostVisuals: { George: string; Aria: string };
+    coverImageUrl: string;
     onTogglePlay: () => void;
+    onPlayFromStart: () => void;
+    onSeek: (deltaSec: number) => void;
 }) {
+    const formatTime = (totalSec: number) => {
+        if (!Number.isFinite(totalSec) || totalSec < 0) return '0:00';
+        const seconds = Math.floor(totalSec);
+        const minutes = Math.floor(seconds / 60);
+        const remain = seconds % 60;
+        return `${minutes}:${String(remain).padStart(2, '0')}`;
+    };
+
     return (
-        <>
-            {/* Title Section */}
-            <motion.div
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                className="text-center mb-12 w-full px-4"
-            >
-                <div className="inline-flex items-center px-2 py-1 mb-4 rounded-md bg-white/5 border border-white/10 gap-2">
-                    <span className={`text-[8px] font-bold tracking-widest uppercase ${session.isNew ? 'text-yellow-400' : 'text-white/40'}`}>
-                        {session.isNew ? '● NEW' : '● RECORDED'}
+        <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="w-full"
+        >
+            <div className="text-center mb-6 px-4">
+                <div className="inline-flex items-center px-3 py-1.5 mb-4 rounded-full bg-white/5 border border-white/15 gap-2">
+                    <span className={`text-[8px] font-bold tracking-widest uppercase ${session.isNew ? 'text-cyan-200' : 'text-white/45'}`}>
+                        {session.isNew ? 'LIVE ARCHIVE READY' : 'RECORDED SESSION'}
                     </span>
                     {session.dateRange && (
-                        <span className="text-[8px] font-bold tracking-widest uppercase text-white/20 border-l border-white/10 pl-2">
+                        <span className="text-[8px] font-bold tracking-widest uppercase text-white/25 border-l border-white/10 pl-2">
                             {session.dateRange}
                         </span>
                     )}
                 </div>
 
-                <h1 className="text-3xl font-light tracking-tight mb-3 text-white">
+                <h1 className="text-3xl sm:text-4xl font-light tracking-tight mb-2 text-white">
                     {session.title}
                 </h1>
                 <div className="flex items-center justify-center gap-3">
-                    <div className="h-[1px] w-8 bg-blue-500/30" />
-                    <p className="text-[10px] tracking-[0.3em] uppercase text-blue-400/60 font-medium">{session.subtitle}</p>
-                    <div className="h-[1px] w-8 bg-blue-500/30" />
+                    <div className="h-[1px] w-12 bg-cyan-300/25" />
+                    <p className="text-[10px] tracking-[0.28em] uppercase text-cyan-100/70 font-medium">{session.subtitle}</p>
+                    <div className="h-[1px] w-12 bg-cyan-300/25" />
                 </div>
-            </motion.div>
+            </div>
 
-            {/* Portraits */}
-            <div className="flex justify-center gap-16 w-full mb-16">
-                {[
-                    { name: 'George', emoji: '🤵‍♂️' },
-                    { name: 'Aria', emoji: '🎙️' }
-                ].map((person, idx) => (
-                    <motion.div
-                        key={person.name}
-                        animate={isPlaying ? {
-                            y: [0, -12, 0],
-                            scale: [1, 1.05, 1],
-                        } : {}}
-                        transition={{
-                            repeat: Infinity,
-                            duration: 5,
-                            delay: idx * 2.5,
-                            ease: "easeInOut"
-                        }}
-                        className="flex flex-col items-center gap-5"
-                    >
-                        <div className={`w-28 h-28 rounded-full bg-gradient-to-b from-white/10 to-transparent border border-white/20 flex items-center justify-center text-5xl shadow-2xl relative ${isPlaying ? 'ring-2 ring-white/10 ring-offset-4 ring-offset-black transition-all' : ''}`}>
-                            <span className="drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">{person.emoji}</span>
-                            {isPlaying && (
-                                <motion.div
-                                    className="absolute -right-1 -top-1 w-6 h-6 rounded-full bg-red-500 border-2 border-black flex items-center justify-center"
-                                    animate={{ scale: [1, 1.2, 1] }}
-                                    transition={{ repeat: Infinity, duration: 2 }}
-                                >
-                                    <div className="w-1.5 h-1.5 rounded-full bg-white opacity-80" />
-                                </motion.div>
-                            )}
+            <div className="w-full max-w-5xl grid lg:grid-cols-[1.4fr_1fr] gap-4 sm:gap-6">
+                {/* Script Section */}
+                <section className="rounded-[2rem] border border-cyan-100/15 bg-[#060d18]/85 backdrop-blur-2xl shadow-[0_20px_55px_rgba(0,0,0,0.5)] overflow-hidden">
+                    <div className="relative border-b border-white/10">
+                        <img
+                            src={coverImageUrl}
+                            alt="Weekly Radio Cover"
+                            className="w-full h-36 sm:h-48 object-cover opacity-85"
+                            loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#050a14] via-[#050a14]/35 to-transparent" />
+                        <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                            <div className="px-2.5 py-1 rounded-full bg-black/55 border border-cyan-200/30 text-[9px] font-semibold tracking-[0.3em] text-cyan-100 uppercase">
+                                88.1 MHz
+                            </div>
+                            <div className={`px-2.5 py-1 rounded-full border text-[9px] font-semibold tracking-[0.22em] uppercase ${isPlaying ? 'bg-red-500/20 border-red-300/60 text-red-100' : 'bg-white/10 border-white/20 text-white/60'}`}>
+                                {isPlaying ? 'On Air' : 'Standby'}
+                            </div>
                         </div>
-                        <span className={`text-[11px] font-bold tracking-[0.5em] uppercase transition-all duration-500 ${isPlaying ? 'text-blue-400 opacity-100' : 'text-white/20'}`}>
-                            {person.name}
-                        </span>
-                    </motion.div>
-                ))}
-            </div>
+                    </div>
 
-            {/* Script Stream */}
-            <div className="w-full h-44 overflow-y-auto mb-10 mask-fade-y scrollbar-hide">
-                <div className="space-y-8 pb-32 pt-4">
-                    {session.script.map((line, i) => (
-                        <motion.div
-                            key={i}
-                            className={`flex flex-col gap-2 text-center transition-all duration-1000 ${currentLineIndex === i ? 'scale-105' : 'opacity-10 scale-90'}`}
+                    <div className="px-4 sm:px-5 py-3 border-b border-white/10 bg-[#050b14]/90">
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="text-[9px] tracking-[0.32em] uppercase text-cyan-200/70 mb-1">
+                                    Now Talking
+                                </p>
+                                <p className="text-sm sm:text-base font-medium text-white truncate">
+                                    {activeLine ? `${activeLine.speaker}: ${activeLine.text}` : '配信の準備ができています。'}
+                                </p>
+                            </div>
+                            <div className="hidden sm:flex items-center gap-2">
+                                {(['George', 'Aria'] as const).map((name) => (
+                                    <div key={name} className="relative w-11 h-11 rounded-full border border-cyan-100/30 overflow-hidden bg-black/50">
+                                        <Disc3 size={22} className={`absolute inset-0 m-auto text-white/15 ${isPlaying ? 'animate-spin [animation-duration:7s]' : ''}`} />
+                                        <img
+                                            src={hostVisuals[name]}
+                                            alt={`${name} visual`}
+                                            className="w-full h-full object-cover opacity-90"
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="h-56 overflow-y-auto mask-fade-y scrollbar-hide px-4 sm:px-5 py-4 bg-[#030810]/85">
+                        <div className="space-y-4 pb-12">
+                            {session.script.map((line, i) => {
+                                const isActive = currentLineIndex === i;
+                                const isGeorge = line.speaker.toLowerCase() === 'george';
+                                return (
+                                    <motion.div
+                                        key={`${line.speaker}-${i}`}
+                                        className={`flex ${isGeorge ? 'justify-start' : 'justify-end'} transition-all duration-500 ${isActive ? 'opacity-100' : 'opacity-45'}`}
+                                    >
+                                        <div className={`max-w-[92%] sm:max-w-[82%] rounded-2xl px-3.5 py-2.5 border ${
+                                            isGeorge
+                                                ? isActive
+                                                    ? 'bg-cyan-400/14 border-cyan-200/35'
+                                                    : 'bg-cyan-400/5 border-cyan-200/20'
+                                                : isActive
+                                                    ? 'bg-indigo-400/16 border-indigo-200/35'
+                                                    : 'bg-indigo-400/6 border-indigo-200/20'
+                                        }`}>
+                                            <p className={`text-[9px] tracking-[0.28em] uppercase font-semibold mb-1 ${isActive ? 'text-cyan-100' : 'text-white/45'}`}>
+                                                {line.speaker}
+                                            </p>
+                                            <p className={`text-sm sm:text-[15px] leading-relaxed ${isActive ? 'text-white' : 'text-white/65'}`}>
+                                                {line.text}
+                                            </p>
+                                        </div>
+                                    </motion.div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </section>
+
+                {/* Controls Section */}
+                <section className="rounded-[2rem] border border-cyan-100/20 bg-[#070d18]/90 backdrop-blur-2xl shadow-[0_20px_55px_rgba(0,0,0,0.55)] p-5 sm:p-6">
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
+                            <p className="text-[9px] tracking-[0.25em] uppercase text-white/45 mb-1">Status</p>
+                            <div className="flex items-center gap-1.5 text-cyan-100">
+                                <Signal size={13} />
+                                <span className="text-xs font-semibold">{isPlaying ? 'Broadcasting' : 'Standby'}</span>
+                            </div>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
+                            <p className="text-[9px] tracking-[0.25em] uppercase text-white/45 mb-1">Level</p>
+                            <div className="flex items-center gap-1.5 text-cyan-100">
+                                <Volume2 size={13} />
+                                <span className="text-xs font-semibold">{Math.round(audioLevel * 140)}%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 mb-5">
+                        <div className="relative w-full h-1.5 bg-white/15 rounded-full mb-2 overflow-hidden">
+                            <div
+                                className="h-full bg-gradient-to-r from-cyan-300 via-blue-300 to-cyan-300 shadow-[0_0_18px_rgba(103,232,249,0.45)] transition-all duration-300 ease-linear"
+                                style={{ width: `${progress * 100}%` }}
+                            />
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] tracking-[0.18em] uppercase text-white/55 font-semibold">
+                            <span>{formatTime(currentTimeSec)}</span>
+                            <span>{durationSec > 0 ? formatTime(durationSec) : '--:--'}</span>
+                        </div>
+                    </div>
+
+                    {/* Controls */}
+                    <div className="flex items-center justify-center gap-4 mb-5">
+                        <button
+                            onClick={() => onSeek(-15)}
+                            className="w-12 h-12 rounded-full border border-white/15 bg-white/5 text-white/55 hover:text-cyan-100 hover:border-cyan-200/35 transition-colors flex items-center justify-center"
+                            aria-label="15秒戻る"
                         >
-                            <span className="text-[9px] tracking-[0.4em] uppercase text-blue-400/40 font-bold">{line.speaker}</span>
-                            <p className="text-lg font-light leading-relaxed px-6 text-white/90">
-                                {line.text}
-                            </p>
-                        </motion.div>
-                    ))}
-                </div>
-            </div>
+                            <SkipBack size={20} />
+                        </button>
+                        <motion.button
+                            whileTap={{ scale: 0.92 }}
+                            onClick={onTogglePlay}
+                            className="w-20 h-20 rounded-full bg-gradient-to-b from-cyan-100 to-cyan-300 text-[#02111d] flex items-center justify-center shadow-[0_14px_35px_rgba(34,211,238,0.4)] hover:scale-105 transition-all"
+                        >
+                            {isPlaying ? <Pause size={30} fill="currentColor" /> : <Play size={30} fill="currentColor" className="ml-1" />}
+                        </motion.button>
+                        <button
+                            onClick={() => onSeek(15)}
+                            className="w-12 h-12 rounded-full border border-white/15 bg-white/5 text-white/55 hover:text-cyan-100 hover:border-cyan-200/35 transition-colors flex items-center justify-center"
+                            aria-label="15秒進む"
+                        >
+                            <SkipForward size={20} />
+                        </button>
+                    </div>
 
-            {/* Player Controls */}
-            <div className="w-full max-w-sm bg-black/40 backdrop-blur-3xl border border-white/10 rounded-[3rem] p-7 shadow-2xl">
-                <div className="relative w-full h-1 bg-white/5 rounded-full mb-8 overflow-hidden">
-                    <div
-                        className="h-full bg-gradient-to-r from-blue-600 via-cyan-400 to-blue-600 shadow-[0_0_15px_rgba(59,130,246,0.3)] transition-all duration-300 ease-linear"
-                        style={{ width: `${progress * 100}%` }}
-                    />
-                </div>
+                    {/* Equalizer */}
+                    <div className="grid grid-cols-8 gap-1.5 items-end h-9 mb-5 rounded-xl border border-white/10 bg-black/25 px-2">
+                        {eqBars.map((bar, i) => (
+                            <motion.span
+                                key={i}
+                                className="rounded-full bg-gradient-to-t from-cyan-500/80 to-cyan-100/90"
+                                animate={isPlaying ? { height: [`${10 + bar * 12}px`, `${16 + bar * 28}px`, `${8 + bar * 20}px`] } : { height: '8px', opacity: 0.45 }}
+                                transition={{ duration: 0.9 + (i % 3) * 0.25, repeat: Infinity, ease: 'easeInOut' }}
+                            />
+                        ))}
+                    </div>
 
-                <div className="flex items-center justify-center">
-                    <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        onClick={onTogglePlay}
-                        className="w-20 h-20 rounded-full bg-white text-black flex items-center justify-center shadow-2xl hover:scale-105 transition-all outline-none"
-                    >
-                        {isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-1" />}
-                    </motion.button>
-                </div>
+                    <div className="flex flex-col gap-2 mb-4">
+                        <button
+                            onClick={onTogglePlay}
+                            disabled={!session.audioUrl}
+                            className={`w-full py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors ${
+                                session.audioUrl
+                                    ? 'border-cyan-300/40 bg-cyan-200/10 text-cyan-100 hover:bg-cyan-200/20'
+                                    : 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
+                            }`}
+                        >
+                            {isPlaying ? '放送を停止' : (isAudioReady ? '放送を再生' : '読み込み中...')}
+                        </button>
+                        <button
+                            onClick={onPlayFromStart}
+                            disabled={!session.audioUrl}
+                            className={`w-full py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors ${
+                                session.audioUrl
+                                    ? 'border-white/20 bg-white/10 text-white/90 hover:bg-white/20'
+                                    : 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
+                            }`}
+                        >
+                            冒頭から再生
+                        </button>
+                    </div>
+
+                    <div className="rounded-xl border border-cyan-200/20 bg-cyan-200/5 px-3 py-2.5">
+                        <div className="flex items-center gap-2 text-cyan-100/85">
+                            <Mic2 size={14} />
+                            <p className="text-[10px] tracking-[0.18em] uppercase font-semibold">Radio Console</p>
+                        </div>
+                        <p className="text-[11px] text-white/60 mt-1.5 leading-relaxed">
+                            音声が出ない場合は「放送を再生」をもう一度押してください。
+                        </p>
+                    </div>
+                </section>
             </div>
-        </>
+        </motion.div>
     );
 }

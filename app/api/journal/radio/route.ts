@@ -6,6 +6,7 @@ import { getKieApiClient } from '@/lib/keiapi/client';
 
 const CACHE_PREFIX = 'tarot-journal:radio-cache:';
 const RADIO_CACHE_TTL_SEC = 60 * 60 * 24 * 3; // 3 days
+const DEFAULT_COVER_IMAGE_URL = '/icon-options/george_illustrative.png';
 
 export async function POST(req: NextRequest) {
     try {
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
                 subtitle: cached.script.subtitle,
                 script: cached.script.lines,
                 audioUrl: cached.audioUrl,
+                coverImageUrl: DEFAULT_COVER_IMAGE_URL,
                 startDate: cached.startDate || startDate,
                 endDate: cached.endDate || endDate,
                 isNew: false,
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
         // 4. Generate Radio Script
         const script = await generateWeeklyRadioScript(userId, userName || 'お客様', journals);
 
-        // 5. Generate Audio via Kie AI (Text-to-Dialogue v3)
+        // 5. Generate Audio via Kie AI
         const client = getKieApiClient();
         const audioUrl = await client.generateDialogue(script.lines);
 
@@ -64,6 +66,7 @@ export async function POST(req: NextRequest) {
             subtitle: script.subtitle,
             script: script.lines,
             audioUrl: audioUrl,
+            coverImageUrl: DEFAULT_COVER_IMAGE_URL,
             startDate,
             endDate,
             isNew: true,

@@ -49,6 +49,11 @@ export default function SettingsModal({
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        setShowDebug(currentShowDebug);
+    }, [isOpen, currentShowDebug]);
+
     // Fetch available voices on mount
     useEffect(() => {
         if (isOpen) {
@@ -60,7 +65,6 @@ export default function SettingsModal({
                     }
                     if (data.identity?.name) setAiName(data.identity.name);
                     if (data.identity?.voiceId) setVoiceId(data.identity.voiceId);
-                    if (data.identity?.showDebug !== undefined) setShowDebug(data.identity.showDebug);
                     if (data.identity?.bgmEnabled !== undefined) setBgmEnabled(data.identity.bgmEnabled);
                     if (data.user?.displayName) setUserName(data.user.displayName);
                 })
