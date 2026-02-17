@@ -22,8 +22,13 @@ export async function POST(req: NextRequest) {
 
         // 1. Fetch journal entries from the past 7 days
         const journals = await getJournalsFromPastDays(userId, 7);
-        if (journals.length === 0) {
-            return NextResponse.json({ error: 'ジャーナルの履歴がありません。まずは数日間、日記をつけてみてください。' }, { status: 404 });
+        const MIN_JOURNALS = 3;
+        if (journals.length < MIN_JOURNALS) {
+            return NextResponse.json({ 
+                error: `ラジオを生成するには最低${MIN_JOURNALS}日分の日記が必要です（現在${journals.length}日分）。もう数日、ジャーナルをつけてからお試しください。`,
+                requiredDays: MIN_JOURNALS,
+                currentDays: journals.length
+            }, { status: 400 });
         }
 
         // 2. Calculate Date Range

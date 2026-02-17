@@ -415,7 +415,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                             />
                         )}
                         {viewMode === 'loading' && (
-                            <LoadingUI />
+                            <LoadingUI progress={50} stage="analyzing" />
                         )}
                         {viewMode === 'player' && currentSession && (
                             <PlayerUI
@@ -605,11 +605,19 @@ function ConfirmUI({
                 <p className="text-white/60 text-sm leading-relaxed">
                     １週間を振り返る番組を生成しますか？
                 </p>
-                <div className="p-4 bg-white/5 rounded-2xl flex items-start gap-3 text-left">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />
-                    <p className="text-[11px] text-white/40 leading-normal italic">
-                        生成には1分ほど時間がかかる場合があります。
-                    </p>
+                <div className="p-4 bg-white/5 rounded-2xl text-left space-y-3">
+                    <div className="flex items-start gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />
+                        <p className="text-[11px] text-white/40 leading-normal">
+                            生成には30秒〜1分ほどかかる場合があります。
+                        </p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 mt-1.5 shrink-0" />
+                        <p className="text-[11px] text-white/50 leading-normal">
+                            <span className="text-yellow-200 font-medium">最低3日分</span>のジャーナルが必要です。まだ日記が足りない場合は、もう数日間記録をつけてからお試しください。
+                        </p>
+                    </div>
                 </div>
             </div>
             {error && (
@@ -635,24 +643,72 @@ function ConfirmUI({
     );
 }
 
-function LoadingUI() {
+function LoadingUI({ progress = 50, stage = 'analyzing' }: { progress?: number; stage?: 'analyzing' | 'generating' | 'synthesizing' }) {
+    const stageText = {
+        analyzing: 'ジャーナルを分析中...',
+        generating: 'スクリプトを生成中...',
+        synthesizing: '音声を合成中...',
+    };
+
+    const stageIcon = {
+        analyzing: '📊',
+        generating: '✍️',
+        synthesizing: '🎙️',
+    };
+
     return (
-        <div className="flex flex-col items-center gap-6">
-            <div className="relative">
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center space-y-6 p-8 bg-white/5 rounded-[2.5rem] border border-white/10 backdrop-blur-2xl shadow-[0_22px_60px_rgba(0,0,0,0.55)] max-w-md"
+        >
+            <div className="relative w-24 h-24 mx-auto">
                 <motion.div
                     animate={{ rotate: 360 }}
                     transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-                    className="w-20 h-20 border-t-2 border-blue-500 rounded-full"
+                    className="w-24 h-24 border-2 border-white/20 border-t-cyan-400 rounded-full"
                 />
                 <div className="absolute inset-0 flex items-center justify-center">
-                    <Radio className="text-blue-500/50 animate-pulse" size={28} />
+                    <span className="text-3xl">{stageIcon[stage]}</span>
                 </div>
             </div>
-            <div className="text-center space-y-4">
-                <p className="text-white/80 font-light tracking-[0.2em] text-lg scanning-text uppercase">Scanning Signals...</p>
-                <p className="text-white/20 text-[10px] tracking-[0.3em] uppercase">Connecting to Weekly Archive</p>
+
+            <div className="space-y-3">
+                <div className="flex items-center justify-center gap-2 text-cyan-100">
+                    <motion.div
+                        animate={{ opacity: [1, 0.5, 1] }}
+                        transition={{ repeat: Infinity, duration: 1.5 }}
+                        className="w-2 h-2 rounded-full bg-cyan-400"
+                    />
+                    <p className="text-sm font-medium tracking-wide">{stageText[stage]}</p>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progress}%` }}
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                        className="h-full bg-gradient-to-r from-cyan-400 to-blue-400"
+                    />
+                </div>
+
+                <p className="text-white/40 text-xs">{progress}%</p>
             </div>
-        </div>
+
+            <div className="p-4 bg-white/5 rounded-2xl text-left">
+                <p className="text-[11px] text-white/40 leading-relaxed">
+                    生成には30秒〜1分ほどかかる場合があります。この画面を閉じても、準備ができたら通知でお知らせします。
+                </p>
+            </div>
+
+            <button
+                onClick={() => {}}
+                className="px-6 py-2 rounded-full border border-white/20 text-white/50 text-xs hover:bg-white/5 transition-colors"
+            >
+                バックグラウンドで続ける
+            </button>
+        </motion.div>
     );
 }
 
@@ -896,6 +952,34 @@ function PlayerUI({
                             }`}
                         >
                             冒頭から再生
+                        </button>
+                        <button
+                            onClick={async () => {
+                                if (!session.audioUrl) return;
+                                try {
+                                    const response = await fetch(session.audioUrl);
+                                    const blob = await response.blob();
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = `${session.title || 'radio'}.mp3`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                } catch (err) {
+                                    console.error('Download failed:', err);
+                                }
+                            }}
+                            disabled={!session.audioUrl}
+                            className={`w-full py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors flex items-center justify-center gap-2 ${
+                                session.audioUrl
+                                    ? 'border-purple-300/40 bg-purple-200/10 text-purple-100 hover:bg-purple-200/20'
+                                    : 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
+                            }`}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                            音声をダウンロード
                         </button>
                     </div>
 
