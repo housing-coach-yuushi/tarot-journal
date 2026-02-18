@@ -217,7 +217,33 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         setProgress(0);
         setCurrentLineIndex(0);
         setIsAudioReady(false);
+        setIsPlaying(false);
     };
+
+    // Auto-load audio when session changes
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio || !currentSession?.audioUrl) return;
+
+        // Reset state
+        audio.pause();
+        audio.currentTime = 0;
+        audio.src = currentSession.audioUrl;
+        audio.load();
+
+        // Try to play after a short delay
+        const playTimer = setTimeout(async () => {
+            try {
+                audio.muted = false;
+                audio.volume = 1;
+                await audio.play();
+            } catch (err) {
+                console.warn('Auto-play failed, user interaction required:', err);
+            }
+        }, 300);
+
+        return () => clearTimeout(playTimer);
+    }, [currentSession?.id, currentSession?.audioUrl]);
 
     const deleteSession = (sessionId: string) => {
         const updated = sessions.filter(s => s.id !== sessionId);
