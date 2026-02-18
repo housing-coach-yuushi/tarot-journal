@@ -35,6 +35,7 @@ function getUserId(): string {
 export default function Home() {
   const [userId, setUserId] = useState<string>('default');
   const [isLoading, setIsLoading] = useState(true);
+  const [isReady, setIsReady] = useState(false);  // バックグラウンド準備完了
   const [showTapHint, setShowTapHint] = useState(true);
   const [showChat, setShowChat] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -222,6 +223,9 @@ export default function Home() {
       };
       setMessages([checkinMessage, guideMessage]);
       log(`チェックインメッセージ設定: ${lines.length}行`);
+      
+      // Mark as ready
+      setIsReady(true);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       log(`初期化エラー: ${errMsg}`);
@@ -236,27 +240,38 @@ export default function Home() {
     prepareInBackground();
   }, [prepareInBackground]);
 
-  // Checkin TTS - will be played after user taps
+  // Checkin TTS - plays after isReady becomes true
   useEffect(() => {
-    // Just mark as not played yet, will play after tap
-    checkinTtsPlayedRef.current = false;
-  }, []);
+    if (isLoading) return;
+    if (!isReady) return;
+    if (messages.length > 2) return;
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem(CHECKIN_TTS_SESSION_KEY) === '1') return;
+    if (checkinTtsPlayedRef.current || !ttsEnabled) return;
+
+    const firstMessage = messages[0];
+    if (!firstMessage || firstMessage.role !== 'assistant' || !firstMessage.id.startsWith('checkin-')) return;
+
+    window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
+    checkinTtsPlayedRef.current = true;
+
+    const tryPlay = async () => {
+      log('チェックイン音声再生');
+      const success = await playTTS(firstMessage.content.trim());
+      log(`チェックイン音声: ${success ? '成功' : '失敗'}`);
+    };
+
+    void tryPlay();
+  }, [isLoading, isReady, messages, playTTS, log, ttsEnabled]);
 
   // Handlers
   const handleTapToStart = useCallback(async () => {
     setIsLoading(false);
     setShowTapHint(false);
-    await unlockAudio();
-    
-    // Play checkin TTS after tap (iOS autoplay workaround)
-    // Use checkinLines state which is set during background preparation
-    if (ttsEnabled && checkinLines && checkinLines.length > 0) {
-      log('タップ後チェックイン音声再生');
-      const success = await playTTS(checkinLines.join('\n').trim());
-      log(`チェックイン音声: ${success ? '成功' : '失敗'}`);
-      checkinTtsPlayedRef.current = true;
+    const unlocked = await unlockAudio();
+    if (!unlocked) {
+      pushNotice('info', '音声の準備は続行中です。必要ならマイクを押す前に画面を一度タップしてください。', 5000);
     }
-  }, [unlockAudio, ttsEnabled, checkinLines, playTTS, log]);
+  }, [unlockAudio, pushNotice]);
 
   const handleSendMessage = useCallback(async (text: string) => {
     window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
