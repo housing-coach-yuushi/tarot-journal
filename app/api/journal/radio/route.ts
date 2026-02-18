@@ -10,7 +10,8 @@ const DEFAULT_COVER_IMAGE_URL = '/icon-options/george_illustrative.png';
 
 export async function POST(req: NextRequest) {
     try {
-        const { userId: rawUserId, userName: providedName } = await req.json();
+        const { userId: rawUserId, userName: providedName, force } = await req.json();
+        const forceRegenerate = force === true || force === 'true';
 
         if (!rawUserId || typeof rawUserId !== 'string' || !rawUserId.trim()) {
             return NextResponse.json({ error: 'UserId is required' }, { status: 400 });
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
         const cacheKey = `${CACHE_PREFIX}${userId}`;
         const cached = await redis.get<{ script: any, audioUrl: string, journalIds: string, startDate: string, endDate: string }>(cacheKey);
 
-        if (cached && cached.journalIds === journalIds) {
+        if (!forceRegenerate && cached && cached.journalIds === journalIds) {
             return NextResponse.json({
                 success: true,
                 title: cached.script.title,

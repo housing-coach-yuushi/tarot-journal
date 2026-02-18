@@ -152,7 +152,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
 
     // --- Actions ---
 
-    const generateRadio = async () => {
+    const generateRadio = async (forceRegenerate: boolean = false) => {
         setViewMode('loading');
         setError(null);
 
@@ -160,7 +160,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
             const response = await fetch('/api/journal/radio', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId, userName }),
+                body: JSON.stringify({ userId, userName, force: forceRegenerate }),
             });
 
             if (!response.ok) {
@@ -435,7 +435,8 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                         )}
                         {viewMode === 'confirm' && (
                             <ConfirmUI
-                                onGenerate={generateRadio}
+                                onGenerate={() => generateRadio(false)}
+                                onForceGenerate={() => generateRadio(true)}
                                 onCancel={() => setViewMode('list')}
                                 error={error}
                             />
@@ -610,10 +611,12 @@ function ListUI({
 
 function ConfirmUI({
     onGenerate,
+    onForceGenerate,
     onCancel,
     error,
 }: {
     onGenerate: () => void;
+    onForceGenerate: () => void;
     onCancel: () => void;
     error: string | null;
 }) {
@@ -657,6 +660,12 @@ function ConfirmUI({
                     className="w-full py-4 rounded-2xl bg-gradient-to-r from-cyan-200 to-blue-200 text-[#021322] text-xs font-bold tracking-[0.2em] uppercase hover:brightness-110 transition-all shadow-[0_0_24px_rgba(125,211,252,0.5)]"
                 >
                     番組を生成する
+                </button>
+                <button
+                    onClick={onForceGenerate}
+                    className="w-full py-4 rounded-2xl border border-cyan-300/35 bg-cyan-300/10 text-cyan-100 text-[10px] font-bold tracking-[0.2em] uppercase hover:bg-cyan-300/20 transition-all"
+                >
+                    再生成する（キャッシュ無視）
                 </button>
                 <button
                     onClick={onCancel}
