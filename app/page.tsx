@@ -46,12 +46,51 @@ export default function Home() {
   const [input, setInput] = useState('');
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [sessionCount, setSessionCount] = useState(1);
 
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const checkinTtsPlayedRef = useRef<boolean>(false);
   const hasHistoryRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
   const heldTranscriptRef = useRef<string>('');
+
+  // Get today's date in JST
+  const getTodayDate = useCallback(() => {
+    return new Intl.DateTimeFormat('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    }).format(new Date());
+  }, []);
+
+  // Load session count from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem('tarot-journal-session');
+    if (stored) {
+      try {
+        const data = JSON.parse(stored);
+        const today = getTodayDate();
+        if (data.date === today) {
+          setSessionCount(data.count || 1);
+        } else {
+          // New day, reset count
+          setSessionCount(1);
+          localStorage.setItem('tarot-journal-session', JSON.stringify({ date: today, count: 1 }));
+        }
+      } catch {
+        setSessionCount(1);
+      }
+    }
+  }, [getTodayDate]);
+
+  // Increment session count
+  const incrementSessionCount = useCallback(() => {
+    const today = getTodayDate();
+    const newCount = sessionCount + 1;
+    setSessionCount(newCount);
+    localStorage.setItem('tarot-journal-session', JSON.stringify({ date: today, count: newCount }));
+  }, [sessionCount, getTodayDate]);
 
   // Hooks
   const { notice, pushNotice, clearNotice } = useNotice();
@@ -176,44 +215,51 @@ export default function Home() {
       const status = await statusRes.json();
       setBootstrap(status);
 
-      if (status?.history && status.history.length > 0) {
-        hasHistoryRef.current = true;
-        const restoredMessages: Message[] = status.history.map((m: { role: string; content: string; timestamp?: string }, i: number) => ({
-          id: `restored-${i}-${Date.now()}`,
-          role: m.role as Message['role'],
-          content: m.content,
-          timestamp: new Date(m.timestamp || Date.now()),
-        }));
-        setMessages(restoredMessages);
-        log(`履歴復元: ${status.history.length}件`);
-      } else {
-        // Fetch checkin lines
+      // Always show checkin (every session starts fresh)
+      const today = getTodayDate();
+      const storedSession = localStorage.getItem('tarot-journal-session');
+      let currentCount = 1;
+      
+      if (storedSession) {
         try {
-          const res = await fetch(`/api/checkin?userId=${currentUserId}`);
-          if (res.ok) {
-            const data = await res.json();
-            setCheckinLines(data.lines);
+          const data = JSON.parse(storedSession);
+          if (data.date === today) {
+            currentCount = (data.count || 0) + 1;
           }
         } catch {
           // ignore
         }
-
-        const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
-        const lines = checkinLines && checkinLines.length > 0 ? checkinLines : fallbackLines;
-        const checkinMessage: Message = {
-          id: 'checkin-' + Date.now(),
-          role: 'assistant',
-          content: lines.join('\n'),
-          timestamp: new Date(),
-        };
-        const guideMessage: Message = {
-          id: 'guide-' + Date.now(),
-          role: 'assistant',
-          content: 'マイクを押して、今の気持ちを話してみてください。',
-          timestamp: new Date(),
-        };
-        setMessages([checkinMessage, guideMessage]);
       }
+      
+      localStorage.setItem('tarot-journal-session', JSON.stringify({ date: today, count: currentCount }));
+      setSessionCount(currentCount);
+
+      // Fetch checkin lines with session count
+      try {
+        const res = await fetch(`/api/checkin?userId=${currentUserId}&sessionCount=${currentCount}`);
+        if (res.ok) {
+          const data = await res.json();
+          setCheckinLines(data.lines);
+        }
+      } catch {
+        // ignore
+      }
+
+      const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
+      const lines = checkinLines && checkinLines.length > 0 ? checkinLines : fallbackLines;
+      const checkinMessage: Message = {
+        id: 'checkin-' + Date.now(),
+        role: 'assistant',
+        content: lines.join('\n'),
+        timestamp: new Date(),
+      };
+      const guideMessage: Message = {
+        id: 'guide-' + Date.now(),
+        role: 'assistant',
+        content: 'マイクを押して、今の気持ちを話してみてください。',
+        timestamp: new Date(),
+      };
+      setMessages([checkinMessage, guideMessage]);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       log(`初期化エラー: ${errMsg}`);
@@ -221,7 +267,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [log, setBootstrap, setMessages, checkinLines]);
+  }, [log, setBootstrap, checkinLines, getTodayDate]);
 
   useEffect(() => {
     prepareInBackground();
