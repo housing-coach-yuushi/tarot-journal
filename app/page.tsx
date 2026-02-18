@@ -177,19 +177,22 @@ export default function Home() {
       setBootstrap(status);
 
       // Fetch checkin lines (session count is managed by Redis on server)
+      let lines: string[] = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
+      
       try {
         const res = await fetch(`/api/checkin?userId=${currentUserId}`);
         if (res.ok) {
           const data = await res.json();
-          setCheckinLines(data.lines);
+          if (data.lines && data.lines.length > 0) {
+            lines = data.lines;
+          }
           setSessionCount(data.sessionCount || 1);
+          setCheckinLines(lines);
         }
       } catch {
         // ignore
       }
 
-      const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
-      const lines = checkinLines && checkinLines.length > 0 ? checkinLines : fallbackLines;
       const checkinMessage: Message = {
         id: 'checkin-' + Date.now(),
         role: 'assistant',
@@ -203,6 +206,7 @@ export default function Home() {
         timestamp: new Date(),
       };
       setMessages([checkinMessage, guideMessage]);
+      log(`チェックインメッセージ設定: ${lines.length}行`);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       log(`初期化エラー: ${errMsg}`);
@@ -210,7 +214,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [log, setBootstrap, checkinLines]);
+  }, [log, setBootstrap]);
 
   useEffect(() => {
     prepareInBackground();
@@ -230,8 +234,9 @@ export default function Home() {
     checkinTtsPlayedRef.current = true;
 
     const tryPlay = async () => {
-      log('チェックイン音声再生');
-      await playTTS(firstMessage.content.trim());
+      log('チェックイン音声生成開始');
+      const success = await playTTS(firstMessage.content.trim());
+      log(`チェックイン音声再生: ${success ? '成功' : '失敗'}`);
     };
 
     void tryPlay();
