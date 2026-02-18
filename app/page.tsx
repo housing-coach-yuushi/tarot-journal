@@ -236,25 +236,24 @@ export default function Home() {
     prepareInBackground();
   }, [prepareInBackground]);
 
-  // Checkin TTS - Skip for now due to iOS autoplay restrictions
-  // Users will hear TTS after their first interaction
+  // Checkin TTS - will be played after user taps
   useEffect(() => {
-    if (isLoading) return;
-    
-    // Mark checkin TTS as handled so it doesn't try later
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
-    }
-    checkinTtsPlayedRef.current = true;
-    log('チェックイン音声はスキップ（iOS自動再生制限対応）');
-  }, [isLoading, log]);
+    // Just mark as not played yet, will play after tap
+    checkinTtsPlayedRef.current = false;
+  }, []);
 
   // Handlers
   const handleTapToStart = useCallback(async () => {
     setIsLoading(false);
     setShowTapHint(false);
     await unlockAudio();
-  }, [unlockAudio]);
+    
+    // Play checkin TTS after tap (iOS autoplay workaround)
+    if (ttsEnabled && messages.length > 0 && messages[0].id.startsWith('checkin-')) {
+      log('タップ後チェックイン音声再生');
+      void playTTS(messages[0].content.trim());
+    }
+  }, [unlockAudio, ttsEnabled, messages, playTTS, log]);
 
   const handleSendMessage = useCallback(async (text: string) => {
     window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
