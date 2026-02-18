@@ -415,7 +415,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                             />
                         )}
                         {viewMode === 'loading' && (
-                            <LoadingUI progress={50} stage="analyzing" />
+                            <LoadingUI progress={50} stage="analyzing" onClose={onClose} />
                         )}
                         {viewMode === 'player' && currentSession && (
                             <PlayerUI
@@ -643,7 +643,7 @@ function ConfirmUI({
     );
 }
 
-function LoadingUI({ progress = 50, stage = 'analyzing' }: { progress?: number; stage?: 'analyzing' | 'generating' | 'synthesizing' }) {
+function LoadingUI({ progress = 50, stage = 'analyzing', onClose }: { progress?: number; stage?: 'analyzing' | 'generating' | 'synthesizing'; onClose?: () => void }) {
     const stageText = {
         analyzing: 'ジャーナルを分析中...',
         generating: 'スクリプトを生成中...',
@@ -654,6 +654,12 @@ function LoadingUI({ progress = 50, stage = 'analyzing' }: { progress?: number; 
         analyzing: '📊',
         generating: '✍️',
         synthesizing: '🎙️',
+    };
+
+    const handleClose = () => {
+        if (onClose) {
+            onClose();
+        }
     };
 
     return (
@@ -698,12 +704,12 @@ function LoadingUI({ progress = 50, stage = 'analyzing' }: { progress?: number; 
 
             <div className="p-4 bg-white/5 rounded-2xl text-left">
                 <p className="text-[11px] text-white/40 leading-relaxed">
-                    生成には30秒〜1分ほどかかる場合があります。この画面を閉じても、準備ができたら通知でお知らせします。
+                    生成には3〜5分ほどかかる場合があります。この画面を閉じても、準備ができたら通知でお知らせします。
                 </p>
             </div>
 
             <button
-                onClick={() => {}}
+                onClick={handleClose}
                 className="px-6 py-2 rounded-full border border-white/20 text-white/50 text-xs hover:bg-white/5 transition-colors"
             >
                 バックグラウンドで続ける
