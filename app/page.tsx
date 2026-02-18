@@ -1,183 +1,123 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
-import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings, Share2 } from 'lucide-react';
+import { ChevronDown, Radio } from 'lucide-react';
+
 import GlowVisualizer from '@/components/GlowVisualizer';
-import TarotDrawButton from '@/components/TarotDrawButton';
+import TapToStart from '@/components/TapToStart';
+import TopBar from '@/components/TopBar';
+import ChatArea from '@/components/ChatArea';
+import BottomControls from '@/components/BottomControls';
+
+import { useTTS } from '@/hooks/useTTS';
+import { useChat, Message } from '@/hooks/useChat';
+import { useTarot } from '@/hooks/useTarot';
+import { useNotice } from '@/hooks/useNotice';
+import { useBootstrap } from '@/hooks/useBootstrap';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
-import { TarotCard, DrawnCard, drawRandomCard } from '@/lib/tarot/cards';
-import { DEFAULT_VOICE_ID, getVoiceById } from '@/lib/tts/voices';
-import { Radio } from 'lucide-react';
 
-const TarotCardReveal = dynamic(() => import('@/components/TarotCardReveal').then(m => m.TarotCardReveal), {
-  ssr: false,
-});
-const TarotDeckShuffle = dynamic(() => import('@/components/TarotDeckShuffle').then(m => m.TarotDeckShuffle), {
-  ssr: false,
-});
-const SettingsModal = dynamic(() => import('@/components/SettingsModal').then(m => m.default), {
-  ssr: false,
-});
-const GeorgeRadio = dynamic(() => import('@/components/GeorgeRadio').then(m => m.default), {
-  ssr: false,
-});
-
-interface Message {
-  id: string;
-  role: 'user' | 'assistant' | 'tarot';
-  content: string;
-  timestamp: Date;
-  card?: DrawnCard;
-}
-
-interface BootstrapState {
-  isBootstrapped: boolean;
-  identity?: {
-    name?: string;
-    creature?: string;
-    vibe?: string;
-    emoji?: string;
-    voiceId?: string;
-    showDebug?: boolean;
-    bgmEnabled?: boolean;
-  };
-  user?: {
-    name?: string;
-    callName?: string;
-  };
-  history?: Array<{
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp?: string;
-  }>;
-}
+const SettingsModal = dynamic(() => import('@/components/SettingsModal').then(m => m.default), { ssr: false });
+const GeorgeRadio = dynamic(() => import('@/components/GeorgeRadio').then(m => m.default), { ssr: false });
 
 const CHECKIN_TTS_SESSION_KEY = 'tarot-journal:checkin-tts-handled';
 
-// Generate or retrieve unique user ID
 function getUserId(): string {
   if (typeof window === 'undefined') return 'default';
-
   const stored = localStorage.getItem('tarot-journal-user-id');
   if (stored) return stored;
-
-  // Generate new UUID
   const newId = 'user-' + crypto.randomUUID();
   localStorage.setItem('tarot-journal-user-id', newId);
   return newId;
 }
 
 export default function Home() {
-  const prefersReducedMotion = useReducedMotion();
-  const supportsPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window;
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isReady, setIsReady] = useState(false);  // バックグラウンド準備完了
-  const [isSending, setIsSending] = useState(false);
-  const [isPreparing, setIsPreparing] = useState(false);  // TTS準備中
-  const [showChat, setShowChat] = useState(true);
-  const [bootstrap, setBootstrap] = useState<BootstrapState>({
-    isBootstrapped: false,
-    identity: { showDebug: false }
-  });
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
-  const [ttsEnabled, setTtsEnabled] = useState(true);
-  const [isSummarizing, setIsSummarizing] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
-  const [isSharing, setIsSharing] = useState(false);
-  const [initError, setInitError] = useState<string | null>(null);
-  const [debugLog, setDebugLog] = useState<string[]>([]);
-  const [showDebug, setShowDebug] = useState(false);
-  const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [userId, setUserId] = useState<string>('default');
-  const [showSettings, setShowSettings] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
-  const [checkinLines, setCheckinLines] = useState<string[] | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [showTapHint, setShowTapHint] = useState(true);
+  const [showChat, setShowChat] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
   const [showRadio, setShowRadio] = useState(false);
   const [radioNotification, setRadioNotification] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
+  const [checkinLines, setCheckinLines] = useState<string[] | null>(null);
+  const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [input, setInput] = useState('');
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+
   const bgmRef = useRef<HTMLAudioElement | null>(null);
-  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const ttsVersionRef = useRef<number>(0); // Track latest TTS request version
-  const [isShuffleOpen, setIsShuffleOpen] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const lastSendTextRef = useRef<string>('');
-  const noticeTimerRef = useRef<number | null>(null);
-  const ttsEnabledRef = useRef<boolean>(ttsEnabled);
-  const hasHistoryRef = useRef<boolean>(false);
   const checkinTtsPlayedRef = useRef<boolean>(false);
-  const checkinTtsHandledRef = useRef<boolean>(false);
-  const checkinTtsAttemptingRef = useRef<boolean>(false);
-  const checkinTtsRetryTimerRef = useRef<number | null>(null);
-  const checkinTtsAttemptedMessageIdRef = useRef<string | null>(null);
-  const tapToStartBusyRef = useRef<boolean>(false);
-  const suppressAudioErrorRef = useRef<boolean>(false);
-  const audioElementPrimedRef = useRef<boolean>(false);
-  const touchActiveRef = useRef<boolean>(false);
+  const hasHistoryRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
   const heldTranscriptRef = useRef<string>('');
-  // checkin is shown directly in chat for new users
-  const MAX_RENDER_MESSAGES = 80;
 
-  // BGM playback control
-  useEffect(() => {
-    if (!bgmRef.current) return;
+  // Hooks
+  const { notice, pushNotice, clearNotice } = useNotice();
+  const { bootstrap, setBootstrap, updateIdentity, updateUser } = useBootstrap();
 
-    const isEnabled = bootstrap.identity?.bgmEnabled === true;
-
-    if (isEnabled && audioUnlocked) {
-      bgmRef.current.play().catch(e => console.warn(`BGM play failed: ${e.message}`));
-      bgmRef.current.volume = 0.005; // 0.01でもうるさいとのことなのでさらに下げる
-    } else {
-      bgmRef.current.pause();
-    }
-  }, [bootstrap.identity?.bgmEnabled, audioUnlocked]);
-
-  // Debug logger
   const log = useCallback((msg: string) => {
     const timestamp = new Date().toLocaleTimeString('ja-JP', { hour12: false });
-    const fullMsg = `[${timestamp}] ${msg}`;
-    console.log(fullMsg);
-    setDebugLog(prev => [...prev.slice(-20), fullMsg]);
+    setDebugLog(prev => [...prev.slice(-20), `[${timestamp}] ${msg}`]);
   }, []);
 
-  useEffect(() => {
-    ttsEnabledRef.current = ttsEnabled;
-  }, [ttsEnabled]);
+  const {
+    isSpeaking,
+    isGeneratingAudio,
+    ttsEnabled,
+    setTtsEnabled,
+    playTTS,
+    stopTTS,
+    unlockAudio,
+    audioUnlocked,
+    audioRef,
+  } = useTTS({
+    voiceId: bootstrap.identity?.voiceId,
+    onLog: log,
+    onNotice: pushNotice,
+  });
 
-  const pushNotice = useCallback((type: 'info' | 'success' | 'error', message: string, ttlMs = 4000) => {
-    setNotice({ type, message });
-    if (noticeTimerRef.current) {
-      window.clearTimeout(noticeTimerRef.current);
-    }
-    noticeTimerRef.current = window.setTimeout(() => {
-      setNotice(null);
-      noticeTimerRef.current = null;
-    }, ttlMs);
-  }, []);
+  const {
+    messages,
+    isSending,
+    sendError,
+    setMessages,
+    sendMessage: sendChatMessage,
+    loadHistory,
+    abortControllerRef,
+    lastSendTextRef,
+  } = useChat({
+    userId,
+    onLog: log,
+    onError: (error) => pushNotice('error', error),
+    onBootstrapUpdate: (data) => {
+      if (data.identity && typeof data.identity === 'object') {
+        updateIdentity(data.identity as Parameters<typeof updateIdentity>[0]);
+      }
+      if (data.user && typeof data.user === 'object') {
+        updateUser(data.user as Parameters<typeof updateUser>[0]);
+      }
+      if (data.isBootstrapped !== undefined) {
+        setBootstrap(prev => ({ ...prev, isBootstrapped: data.isBootstrapped as boolean }));
+      }
+    },
+  });
 
-  const resolveUserId = useCallback((): string => {
-    if (userId && userId !== 'default') return userId;
-    const resolved = getUserId();
-    if (resolved !== userId) {
-      setUserId(resolved);
-    }
-    return resolved;
-  }, [userId]);
+  const { isShuffleOpen, setIsShuffleOpen, processTarotDraw } = useTarot({
+    onCardDrawn: (card, context) => {
+      const tarotMessage: Message = {
+        id: Date.now().toString(),
+        role: 'tarot',
+        content: '',
+        timestamp: new Date(),
+        card: card,
+      };
+      setMessages(prev => [...prev, tarotMessage]);
+      sendChatMessage(context, false);
+    },
+  });
 
-  // Initialize userId on client side
-  useEffect(() => {
-    setUserId(getUserId());
-  }, []);
-
-  // Speech recognition hook - Browser native (real-time)
   const {
     isListening,
     currentTranscript,
@@ -192,431 +132,72 @@ export default function Home() {
       const finalText = text.trim();
       if (!finalText) return;
       heldTranscriptRef.current = finalText;
-      sendMessage(finalText);
+      handleSendMessage(finalText);
       heldTranscriptRef.current = '';
     },
   });
 
+  // Initialize userId
   useEffect(() => {
-    if (debugStatus.startsWith('エラー:')) {
-      const lower = debugStatus.toLowerCase();
-      if (lower.includes('not-allowed') || lower.includes('service-not-allowed')) {
-        pushNotice('error', 'マイクの許可が必要です。ブラウザ設定を確認してください。', 6000);
-      } else if (lower.includes('audio-capture')) {
-        pushNotice('error', 'マイクが見つかりません。接続状態をご確認ください。', 6000);
-      } else if (lower.includes('aborted')) {
-        pushNotice('info', '音声入力が中断されました。もう一度お試しください。', 4000);
-      } else {
-        pushNotice('error', '音声の変換に失敗しました。もう一度試してください。', 5000);
-      }
-    } else if (debugStatus === 'マイク許可が必要です') {
-      pushNotice('error', 'マイクの許可が必要です。ブラウザ設定を確認してください。', 6000);
-    } else if (debugStatus === 'マイクが見つかりません') {
-      pushNotice('error', 'マイクが見つかりません。接続状態をご確認ください。', 6000);
-    } else if (debugStatus === 'マイク利用エラー') {
-      pushNotice('error', 'マイクが他のアプリで使用中の可能性があります。', 5000);
-    } else if (debugStatus === 'トークン取得エラー') {
-      pushNotice('error', '音声サーバーへの接続に失敗しました。時間をおいて再試行してください。', 6000);
-    } else if (debugStatus === '接続エラー') {
-      pushNotice('error', '音声認識の接続が不安定です。再度お試しください。', 5000);
-    } else if (debugStatus === '接続タイムアウト') {
-      pushNotice('error', '音声認識サーバーへの接続がタイムアウトしました。通信環境をご確認ください。', 6000);
-    } else if (debugStatus === '音声初期化エラー') {
-      pushNotice('error', '音声の初期化に失敗しました。ページ再読み込みをお試しください。', 6000);
-    } else if (debugStatus === '変換エラー') {
-      pushNotice('error', '音声の変換に失敗しました。もう一度試してください。', 5000);
-    } else if (debugStatus === '音声が短すぎます') {
-      pushNotice('info', '音声が短すぎます。もう少し長く話してください。', 4000);
+    setUserId(getUserId());
+  }, []);
+
+  // BGM playback control
+  useEffect(() => {
+    if (!bgmRef.current) return;
+    const isEnabled = bootstrap.identity?.bgmEnabled === true;
+    if (isEnabled && audioUnlocked) {
+      bgmRef.current.play().catch(e => console.warn(`BGM play failed: ${e}`));
+      bgmRef.current.volume = 0.005;
+    } else {
+      bgmRef.current.pause();
+    }
+  }, [bootstrap.identity?.bgmEnabled, audioUnlocked]);
+
+  // STT error handling
+  useEffect(() => {
+    if (debugStatus.startsWith('エラー:') || debugStatus.includes('許可') || debugStatus.includes('見つかり')) {
+      pushNotice('error', debugStatus, 6000);
     }
   }, [debugStatus, pushNotice]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const speakWithBrowser = useCallback((text: string) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'ja-JP';
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-      speechRef.current = utterance;
-      setIsSpeaking(true);
-      window.speechSynthesis.speak(utterance);
-      return true;
-    } catch {
-      return false;
-    }
-  }, []);
-
-  const stopDeepgramTTS = useCallback(() => {
-    // No-op: streaming WS playback was removed for stability.
-  }, []);
-
-  const unlockAudio = useCallback(async (): Promise<boolean> => {
-    try {
-      if (audioUnlocked && audioElementPrimedRef.current) return true;
-      if (typeof window === 'undefined') return false;
-      const unlockSrc = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
-
-      // Prime the actual playback element to satisfy strict mobile autoplay policies.
-      const targetAudio = audioRef.current;
-      if (targetAudio && !isSpeaking && !isGeneratingAudio) {
-        const previousSrc = targetAudio.currentSrc || targetAudio.getAttribute('src') || '';
-        suppressAudioErrorRef.current = true;
-        targetAudio.setAttribute('playsinline', 'true');
-        targetAudio.preload = 'auto';
-        targetAudio.muted = false;
-        targetAudio.volume = 0.001;
-        targetAudio.src = unlockSrc;
-        const p = targetAudio.play();
-        if (p) {
-          await p;
-          targetAudio.pause();
-          targetAudio.currentTime = 0;
-        }
-        if (previousSrc.startsWith('blob:')) {
-          targetAudio.src = previousSrc;
-        } else {
-          targetAudio.removeAttribute('src');
-          targetAudio.load();
-        }
-        window.setTimeout(() => {
-          suppressAudioErrorRef.current = false;
-        }, 180);
-        audioElementPrimedRef.current = true;
-      } else {
-        const unlocker = new Audio(unlockSrc);
-        unlocker.volume = 0.001;
-        unlocker.muted = false;
-        unlocker.preload = 'auto';
-        unlocker.setAttribute('playsinline', 'true');
-        const p = unlocker.play();
-        if (p) {
-          await p;
-          unlocker.pause();
-          unlocker.currentTime = 0;
-        }
-      }
-      setAudioUnlocked(true);
-      log('オーディオアンロック完了');
-      return true;
-    } catch (e) {
-      // During non-gesture calls (e.g. async sends), this can fail on iOS.
-      // Keep it as debug-only noise instead of a user-facing error.
-      console.warn('[audio] unlock failed', e);
-      return false;
-    }
-  }, [audioUnlocked, isGeneratingAudio, isSpeaking, log]);
-
-  const playDeepgramTTS = useCallback(async (text: string, version: number, voiceIdOverride?: string) => {
-    if (typeof window === 'undefined') return false;
-    stopDeepgramTTS();
-    const response = await fetch('/api/tts', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text,
-        voiceId: voiceIdOverride || DEFAULT_VOICE_ID,
-      }),
-    });
-
-    if (!response.ok) {
-      const details = await response.text().catch(() => '');
-      throw new Error(`TTS API error: ${response.status} ${details}`);
-    }
-
-    if (version !== ttsVersionRef.current) return false;
-    if (!audioRef.current) throw new Error('audio element missing');
-
-    const contentType = response.headers.get('content-type') || '';
-    const audioBlob = await response.blob();
-    if (version !== ttsVersionRef.current) return false;
-    log(`TTS blob: ${audioBlob.size} bytes (${contentType || 'unknown'})`);
-
-    const nextUrl = URL.createObjectURL(audioBlob);
-    const audio = audioRef.current;
-    if (audio.src && audio.src.startsWith('blob:')) {
-      URL.revokeObjectURL(audio.src);
-    }
-
-    // Keep direct HTMLAudioElement playback path.
-    // AudioContext routing can become suspended on Safari/iOS and result in "playing but silent".
-
-    audio.setAttribute('playsinline', 'true');
-    audio.muted = false;
-    audio.volume = 1;
-    audio.playbackRate = 1;
-    audio.preload = 'auto';
-    audio.src = nextUrl;
-    audio.currentTime = 0;
-    setIsSpeaking(true);
-    setIsGeneratingAudio(false);
-    try {
-      await audio.play();
-      // Watchdog: on iOS/Safari, play() can resolve but audio stays stuck (no time progress).
-      // Detect and retry once with an unlock attempt.
-      await new Promise(resolve => window.setTimeout(resolve, 600));
-      if (version !== ttsVersionRef.current) return false;
-      const stuck = audio.paused || audio.currentTime <= 0;
-      if (stuck) {
-        log(`TTS stuck detected (paused=${audio.paused}, t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
-        const unlocked = await unlockAudio();
-        if (version !== ttsVersionRef.current) return false;
-        if (unlocked) {
-          if (audio.src !== nextUrl) audio.src = nextUrl;
-          audio.currentTime = 0;
-          audio.muted = false;
-          audio.volume = 1;
-          audio.playbackRate = 1;
-          await audio.play();
-        }
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const lowered = message.toLowerCase();
-      if (lowered.includes('notallowed') || lowered.includes('gesture') || lowered.includes('interact')) {
-        const unlocked = await unlockAudio();
-        if (unlocked) {
-          // Restore target source in case platform changed media state during unlock flow.
-          if (audio.src !== nextUrl) {
-            audio.src = nextUrl;
-          }
-          audio.currentTime = 0;
-          audio.muted = false;
-          audio.volume = 1;
-          audio.playbackRate = 1;
-          await audio.play();
-        } else {
-          throw new Error(`play blocked: ${message}`);
-        }
-      } else {
-        throw error;
-      }
-    }
-    return true;
-  }, [stopDeepgramTTS, unlockAudio]);
-
-  // Play TTS for a message (server-side Deepgram REST)
-  const playTTS = useCallback(async (text: string): Promise<boolean> => {
-    if (!ttsEnabled) {
-      log('TTS無効');
-      return false;
-    }
-
-    log('音声生成開始...');
-    setIsGeneratingAudio(true);
-    const currentVersion = ++ttsVersionRef.current;
-    const rawVoiceId = bootstrap.identity?.voiceId;
-    const selectedVoiceId = rawVoiceId && getVoiceById(rawVoiceId) ? rawVoiceId : DEFAULT_VOICE_ID;
-
-    try {
-      const ok = await playDeepgramTTS(text, currentVersion, selectedVoiceId);
-      if (ok) return true;
-      setIsGeneratingAudio(false);
-      return false;
-    } catch (error) {
-      const message = (error as Error).message || 'unknown';
-      const lower = message.toLowerCase();
-      const isPlaybackBlocked =
-        message.includes('未初期化')
-        || lower.includes('notallowed')
-        || lower.includes('gesture')
-        || lower.includes('play blocked');
-
-      if (isPlaybackBlocked && checkinTtsAttemptingRef.current) {
-        setIsGeneratingAudio(false);
-        setIsSpeaking(false);
-        log('チェックイン音声はユーザー操作待ち');
-        return false;
-      }
-
-      const shortMessage = message.length > 90 ? `${message.slice(0, 90)}...` : message;
-      log('音声再生失敗: ' + shortMessage);
-      if (isPlaybackBlocked) {
-        pushNotice('error', '音声再生を開始できませんでした。画面を一度タップしてから再試行してください。', 6000);
-      }
-      setIsGeneratingAudio(false);
-      const fallbackOk = speakWithBrowser(text);
-      if (!fallbackOk) {
-        setIsSpeaking(false);
-      }
-      return fallbackOk;
-    }
-  }, [ttsEnabled, log, playDeepgramTTS, speakWithBrowser, bootstrap.identity?.voiceId, pushNotice]);
-
-  // Stop TTS
-  const stopTTS = useCallback(() => {
-    const speechSynthesisActive = typeof window !== 'undefined'
-      && 'speechSynthesis' in window
-      && (window.speechSynthesis.speaking || window.speechSynthesis.pending);
-    const hasActivePlayback = isSpeaking
-      || isGeneratingAudio
-      || speechSynthesisActive;
-    if (hasActivePlayback) {
-      log('音声停止');
-    }
-    ttsVersionRef.current++; // Invalidate any pending TTS fetches
-    stopDeepgramTTS();
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    if (audioRef.current) {
-      const audio = audioRef.current;
-      suppressAudioErrorRef.current = true;
-      audio.pause();
-      audio.currentTime = 0;
-      const currentSrc = audio.currentSrc || audio.getAttribute('src') || '';
-      if (currentSrc.startsWith('blob:')) {
-        URL.revokeObjectURL(currentSrc);
-      }
-      // Avoid `src = ''` because some browsers resolve it to the page URL and emit a media error.
-      audio.removeAttribute('src');
-      audio.load();
-      window.setTimeout(() => {
-        suppressAudioErrorRef.current = false;
-      }, 250);
-    }
-    setIsSpeaking(false);
-    setIsGeneratingAudio(false);
-  }, [isGeneratingAudio, isSpeaking, log, stopDeepgramTTS]);
-
-
-  // Ref to hold pre-fetched initial data for tap-to-start
-  const initDataRef = useRef<{ message: string; audioUrl: string | null; status: BootstrapState } | null>(null);
-
-  // Background: fetch chat + TTS while showing "tap to start"
+  // Background preparation
   const prepareInBackground = useCallback(async () => {
-      try {
-        log('バックグラウンド準備開始...');
-        setIsPreparing(true);
-        setInitError(null);
-        checkinTtsPlayedRef.current = false;
-        checkinTtsHandledRef.current = false;
-        checkinTtsAttemptingRef.current = false;
-        checkinTtsAttemptedMessageIdRef.current = null;
-        if (checkinTtsRetryTimerRef.current) {
-          window.clearTimeout(checkinTtsRetryTimerRef.current);
-          checkinTtsRetryTimerRef.current = null;
-        }
-        hasHistoryRef.current = false;
+    try {
+      log('バックグラウンド準備開始...');
+      setInitError(null);
+      checkinTtsPlayedRef.current = false;
 
-        const fetchWithTimeout = async (url: string, options?: RequestInit, timeout = 60000) => {
-          const controller = new AbortController();
-          const id = setTimeout(() => controller.abort(), timeout);
-          try {
-            const response = await fetch(url, { ...options, signal: controller.signal });
-            clearTimeout(id);
-            return response;
-          } catch (err: unknown) {
-            clearTimeout(id);
-            if (err instanceof Error && err.name === 'AbortError') {
-              throw new Error('サーバー応答タイムアウト (60秒)');
-            }
-            throw err;
-          }
-        };
+      const currentUserId = getUserId();
+      setUserId(currentUserId);
 
-        const currentUserId = getUserId();
-        setUserId(currentUserId);
+      // Fetch status
+      const statusRes = await fetch(`/api/chat?userId=${currentUserId}`);
+      const status = await statusRes.json();
+      setBootstrap(status);
 
-        // Fetch status (history) first to speed up returning users
-        const statusRes = await fetchWithTimeout(`/api/chat?userId=${currentUserId}`);
-        const status = await statusRes.json();
-
-        if (status?.history && status.history.length > 0) {
-          hasHistoryRef.current = true;
-          initDataRef.current = { message: '', audioUrl: null, status };
-          log(`履歴あり: ${status.history.length}件`);
-          return;
-        }
-
-        // No history: fetch checkin lines (text only)
-        let lines: string[] | null = null;
+      if (status?.history && status.history.length > 0) {
+        hasHistoryRef.current = true;
+        const restoredMessages: Message[] = status.history.map((m: { role: string; content: string; timestamp?: string }, i: number) => ({
+          id: `restored-${i}-${Date.now()}`,
+          role: m.role as Message['role'],
+          content: m.content,
+          timestamp: new Date(m.timestamp || Date.now()),
+        }));
+        setMessages(restoredMessages);
+        log(`履歴復元: ${status.history.length}件`);
+      } else {
+        // Fetch checkin lines
         try {
-          const res = await fetchWithTimeout(`/api/checkin?userId=${currentUserId}`);
+          const res = await fetch(`/api/checkin?userId=${currentUserId}`);
           if (res.ok) {
             const data = await res.json();
-            lines = data.lines;
             setCheckinLines(data.lines);
           }
         } catch {
           // ignore
         }
 
-        setBootstrap(status);
-        const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
-        const checkin = lines && lines.length > 0 ? lines : fallbackLines;
-        const checkinMessage: Message = {
-          id: 'checkin-' + Date.now(),
-          role: 'assistant',
-          content: checkin.join('\n'),
-          timestamp: new Date(),
-        };
-        const guideMessage: Message = {
-          id: 'guide-' + Date.now(),
-          role: 'assistant',
-          content: 'マイクを押して、今の気持ちを話してみてください。',
-          timestamp: new Date(),
-        };
-        setMessages([checkinMessage, guideMessage]);
-        log('履歴なし。チェックインのみ表示します');
-      } catch (error) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        log(`初期化エラー詳細: ${errMsg}`);
-        setInitError('通信に失敗しました。再試行してください。');
-      } finally {
-        setIsReady(true);
-        setIsPreparing(false);
-        setIsGeneratingAudio(false);
-      }
-    }, [log]);
-
-  useEffect(() => {
-    prepareInBackground();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prepareInBackground]);
-
-  const handleTapToStart = useCallback(async () => {
-    if (tapToStartBusyRef.current) return;
-    tapToStartBusyRef.current = true;
-    try {
-      setIsLoading(false);
-      setShowTapHint(false);
-      const unlocked = await unlockAudio();
-      if (!unlocked) {
-        pushNotice('info', '音声の準備は続行中です。必要ならマイクを押す前に画面を一度タップしてください。', 5000);
-      }
-    } finally {
-      tapToStartBusyRef.current = false;
-    }
-  }, [unlockAudio, pushNotice]);
-
-  // When background prep finishes, apply data
-  useEffect(() => {
-    if (isReady && !isLoading && initDataRef.current) {
-      const data = initDataRef.current;
-      initDataRef.current = null; // consume once
-
-      setBootstrap(data.status);
-
-      // Restore history from Cloud (Redis)
-      if (data.status.history && data.status.history.length > 0) {
-        log(`履歴を復元中: ${data.status.history.length}件`);
-        const restoredMessages: Message[] = data.status.history.map((m: any, i: number) => ({
-          id: `restored-${i}-${Date.now()}`,
-          role: m.role,
-          content: m.content,
-          timestamp: new Date(m.timestamp || Date.now()),
-        }));
-        setMessages(restoredMessages);
-      } else {
         const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
         const lines = checkinLines && checkinLines.length > 0 ? checkinLines : fallbackLines;
         const checkinMessage: Message = {
@@ -633,216 +214,117 @@ export default function Home() {
         };
         setMessages([checkinMessage, guideMessage]);
       }
-    } else if (isReady && !isLoading && !initDataRef.current && initError) {
-      log('初期メッセージが取得できなかったため、フォールバックメッセージを表示します');
-      setMessages([{
-        id: 'error-fallback-' + Date.now(),
-        role: 'assistant' as const,
-        content: '...。......あ、れ......。すまない、今は少し意識が遠のいているみたいだ（通信エラー）。少し時間を置いてからまた話しかけてくれるかい？',
-        timestamp: new Date(),
-      }]);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log(`初期化エラー: ${errMsg}`);
+      setInitError('通信に失敗しました。再試行してください。');
+    } finally {
+      setIsLoading(false);
     }
-  }, [isReady, isLoading, log, checkinLines, initError]);
+  }, [log, setBootstrap, setMessages, checkinLines]);
 
   useEffect(() => {
-    if (isLoading || !isReady) return;
+    prepareInBackground();
+  }, [prepareInBackground]);
+
+  // Checkin TTS
+  useEffect(() => {
+    if (isLoading) return;
     if (hasHistoryRef.current) return;
     if (messages.length > 2) return;
-    if (messages.some(message => message.role === 'user' || message.role === 'tarot')) return;
-    if (typeof window !== 'undefined' && window.sessionStorage.getItem(CHECKIN_TTS_SESSION_KEY) === '1') {
-      checkinTtsHandledRef.current = true;
-      return;
-    }
-    if (checkinTtsHandledRef.current) return;
-    if (checkinTtsPlayedRef.current) return;
-    if (checkinTtsAttemptingRef.current) return;
-    if (!ttsEnabled) return;
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem(CHECKIN_TTS_SESSION_KEY) === '1') return;
+    if (checkinTtsPlayedRef.current || !ttsEnabled) return;
 
     const firstMessage = messages[0];
-    if (!firstMessage || firstMessage.role !== 'assistant' || !firstMessage.id.startsWith('checkin-')) {
-      return;
-    }
-    if (checkinTtsAttemptedMessageIdRef.current === firstMessage.id) {
-      return;
-    }
-    const checkinText = firstMessage.content.trim();
-    if (!checkinText) return;
-    checkinTtsAttemptedMessageIdRef.current = firstMessage.id;
-    checkinTtsHandledRef.current = true;
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
-    }
+    if (!firstMessage || firstMessage.role !== 'assistant' || !firstMessage.id.startsWith('checkin-')) return;
 
-    let canceled = false;
+    window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
+    checkinTtsPlayedRef.current = true;
+
     const tryPlay = async () => {
-      if (canceled || checkinTtsPlayedRef.current) return;
-      checkinTtsAttemptingRef.current = true;
       log('チェックイン音声再生');
-      const ok = await playTTS(checkinText);
-      checkinTtsAttemptingRef.current = false;
-      if (canceled) return;
-      if (ok) {
-        checkinTtsPlayedRef.current = true;
-      } else {
-        log('チェックイン音声再生失敗');
-      }
+      await playTTS(firstMessage.content.trim());
     };
 
     void tryPlay();
-    return () => {
-      canceled = true;
-    };
-  }, [isLoading, isReady, messages, playTTS, log, ttsEnabled]);
+  }, [isLoading, messages, playTTS, log, ttsEnabled]);
 
-  useEffect(() => {
-    return () => {
-      if (checkinTtsRetryTimerRef.current) {
-        window.clearTimeout(checkinTtsRetryTimerRef.current);
-        checkinTtsRetryTimerRef.current = null;
-      }
-    };
-  }, []);
+  // Handlers
+  const handleTapToStart = useCallback(async () => {
+    setIsLoading(false);
+    setShowTapHint(false);
+    await unlockAudio();
+  }, [unlockAudio]);
 
-  // Send message (visible in chat)
-  const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
-    if (!text.trim()) return;
-
-    log(`メッセージ送信開始: ${text.substring(0, 10)}...`);
-    setSendError(null);
-    lastSendTextRef.current = text;
-    checkinTtsHandledRef.current = true;
+  const handleSendMessage = useCallback(async (text: string) => {
+    window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
     checkinTtsPlayedRef.current = true;
-    checkinTtsAttemptingRef.current = false;
-    checkinTtsAttemptedMessageIdRef.current = '__disabled__';
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
-    }
-    unlockAudio();
-
-    // Abort any existing request
-    if (abortControllerRef.current) {
-      log('以前のメッセージリクエストを中断します');
-      abortControllerRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    setIsSending(true);
-    const requestUserId = resolveUserId();
-
-    // Clear input immediately to prevent double-send
-    if (showInChat) {
-      setInput('');
-    }
-
-    // Stop any ongoing TTS
+    setInput('');
     stopTTS();
+    await sendChatMessage(text);
+  }, [sendChatMessage, stopTTS]);
 
-    // Only add to chat if showInChat is true
-    if (showInChat) {
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        role: 'user',
-        content: text,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, userMessage]);
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (input.trim()) {
+      handleSendMessage(input);
+    }
+  };
+
+  const handleMicDown = useCallback((e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
+    e.preventDefault();
+    if (isHoldingMicRef.current || !sttSupported || isListening) return;
+
+    window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
+    checkinTtsPlayedRef.current = true;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
 
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          message: text,
-          userId: requestUserId,
-          history: messages.map(m => ({
-            role: m.role === 'tarot' ? 'user' : m.role,  // Convert tarot to user for API
-            content: m.role === 'tarot' && m.card
-              ? `[カード: ${m.card.card.name} ${m.card.card.symbol} (${m.card.isReversed ? '逆位置' : '正位置'})]`
-              : m.content,
-          })),
-        }),
-      });
+    stopTTS();
+    unlockAudio();
+    isHoldingMicRef.current = true;
+    heldTranscriptRef.current = '';
+    startListening();
+  }, [sttSupported, isListening, abortControllerRef, stopTTS, unlockAudio, startListening]);
 
-      if (response.ok) {
-        const data = await response.json();
-        log('レスポンス受信');
-        setSendError(null);
+  const handleMicUp = useCallback((e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
+    e.preventDefault();
+    isHoldingMicRef.current = false;
+    stopAndSend();
+  }, [stopAndSend]);
 
-        // Update bootstrap state
-        if (data.identity || data.user) {
-          setBootstrap(prev => ({
-            ...prev,
-            isBootstrapped: data.isBootstrapped,
-            identity: data.identity,
-            user: data.user,
-          }));
-        }
+  const handleMicCancel = useCallback((e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
+    e.preventDefault();
+    if (!isListening) return;
+    isHoldingMicRef.current = false;
+    heldTranscriptRef.current = '';
+    cancel();
+  }, [isListening, cancel]);
 
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: data.message,
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, assistantMessage]);
-
-        // Play TTS for response
-        log(`TTS開始: "${data.message.substring(0, 20)}..."`);
-        playTTS(data.message);
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        log('チャットAPIエラー: ' + (errorData.error || response.status));
-        setSendError('送信に失敗しました。ネットワークを確認して再送してください。');
-        setIsGeneratingAudio(false);
-      }
-    } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        log('メッセージ送信が中断されました');
-      } else {
-        log('送信エラー: ' + (error as Error).message);
-        setSendError('送信に失敗しました。ネットワークを確認して再送してください。');
-      }
-    } finally {
-      if (abortControllerRef.current === controller) {
-        setIsSending(false);
-        abortControllerRef.current = null;
-      }
-    }
-  }, [messages, isSending, log, stopTTS, playTTS, unlockAudio, resolveUserId]);
-
-  // Save to Obsidian
   const handleSave = useCallback(async () => {
-    if (messages.length === 0 || isSummarizing) return;
+    if (messages.length === 0) return;
 
+    pushNotice('info', '要約中...');
     setIsSummarizing(true);
-    log('要約中...');
-
     try {
-      const requestUserId = resolveUserId();
-      // Step 1: Get summary from AI
       const summarizeResponse = await fetch('/api/journal/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: messages.map(m => ({ role: m.role, content: m.content })),
-          userId: requestUserId,
+          userId,
         }),
       });
 
       if (!summarizeResponse.ok) {
-        log('要約失敗');
-        pushNotice('error', '要約に失敗しました。少し時間を置いて再度お試しください。');
+        pushNotice('error', '要約に失敗しました。');
         return;
       }
 
       const summaryData = await summarizeResponse.json();
-      log('要約完了: ' + summaryData.title);
-
-      // Step 2: Save to Obsidian
-      log('Obsidianに保存中...');
       const saveResponse = await fetch('/api/journal/save-to-obsidian', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -856,154 +338,30 @@ export default function Home() {
       });
 
       if (saveResponse.ok) {
-        const saveData = await saveResponse.json();
-        log('Obsidian保存完了: ' + saveData.filename);
         pushNotice('success', 'Obsidianに保存しました。');
       } else {
-        const errorData = await saveResponse.json();
-        log('Obsidian保存失敗: ' + (errorData.details || errorData.error));
-        // alert('Obsidianへの保存に失敗しました。ダウンロードします。'); // Remove error alert
-
-        // Fallback: Download file
-        const dateStr = new Date().toISOString().split('T')[0];
-        const markdownContent = `---
-title: "${summaryData.title}"
-date: ${dateStr}
-tags:
-  - tarot
-  - journal
----
-
-# ${summaryData.title}
-**日付:** ${dateStr}
-
-## 要約
-${summaryData.summary}
-
-## 対話履歴
-${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || bootstrap.user?.name || 'わたし') : (bootstrap.identity?.name || 'ジョージ')}\n${m.content}`).join('\n\n')}
-`;
-        const blob = new Blob([markdownContent], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${dateStr}.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-
-        // Delay revoke to ensure download starts
-        setTimeout(() => {
-          URL.revokeObjectURL(url);
-        }, 1000);
         pushNotice('info', 'Obsidian保存に失敗したため、ファイルをダウンロードしました。');
       }
     } catch (error) {
-      log('保存エラー: ' + (error as Error).message);
-      pushNotice('error', '保存に失敗しました。通信状況をご確認ください。');
+      pushNotice('error', '保存に失敗しました。');
     } finally {
       setIsSummarizing(false);
     }
-  }, [messages, isSummarizing, log, bootstrap, pushNotice, resolveUserId]);
+  }, [messages, userId, bootstrap, pushNotice]);
 
-  // Handle actual tarot draw after shuffle
-  const processTarotDraw = useCallback(() => {
-    setIsShuffleOpen(false);
-
-    const card = drawRandomCard();
-    const isReversed = Math.random() < 0.5;
-    const drawnCard: DrawnCard = {
-      card,
-      position: isReversed ? 'reversed' : 'upright',
-      isReversed
-    };
-
-    const tarotMessage: Message = {
-      id: Date.now().toString(),
-      role: 'tarot',
-      content: '',
-      timestamp: new Date(),
-      card: drawnCard,
-    };
-    setMessages(prev => [...prev, tarotMessage]);
-
-    // Send card info to AI
-    const hour = new Date().getHours();
-    const timeOfDay = (hour >= 5 && hour < 12) ? '朝' : '夜';
-    const reflection = isReversed ? card.meaning.reversed : (
-      (hour >= 5 && hour < 12) ? card.reflection.morning : card.reflection.evening
-    );
-    const positionText = isReversed ? '逆位置' : '正位置';
-    const cardContext = `[タロットカードを引きました: ${card.name} ${card.symbol} - ${positionText}]\nキーワード: ${card.keywords.join('、')}\n問い: ${reflection}\n（${timeOfDay}のジャーナリングセッション）`;
-    sendMessage(cardContext, false);
-  }, [sendMessage]);
-
-  // Reset function
-  const handleReset = useCallback(async (resetType: 'all' | 'ai' | 'user') => {
-    const confirmMessage = resetType === 'all'
-      ? '全てリセットして目覚めの儀式からやり直しますか？'
-      : resetType === 'ai'
-        ? 'AIのアイデンティティをリセットしますか？'
-        : 'あなたのプロファイルをリセットしますか？';
-
-    if (!confirm(confirmMessage)) return;
-
-    setIsResetting(true);
-    log(`リセット開始: ${resetType}`);
-
-    try {
-      const requestUserId = resolveUserId();
-      const response = await fetch('/api/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: requestUserId, resetType }),
-      });
-
-      if (response.ok) {
-        log('リセット完了');
-        // Clear local state and reload
-        setMessages([]);
-        setBootstrap({ isBootstrapped: false });
-        setShowSettings(false);
-        // Reload page to start fresh
-        window.location.reload();
-      } else {
-        log('リセット失敗');
-      }
-    } catch (error) {
-      log('リセットエラー: ' + (error as Error).message);
-    } finally {
-      setIsResetting(false);
-    }
-  }, [log, resolveUserId]);
-
-  // Share to native apps (Web Share API) - with user-friendly formatting
   const handleShare = useCallback(async () => {
     if (messages.length === 0) {
       pushNotice('info', '共有する内容がありません。');
       return;
     }
 
-    log('共有用に整理中...');
     setIsSharing(true);
-    pushNotice('info', '共有テキストを準備中...');
-
     try {
-      // Step 1: Start the share process immediately if titles/text are ready
-      // or at least call share with meaningful placeholders to satisfy the user gesture.
-      // However, the best way in Safari is to have the text READY.
-      // Let's try to fetch first, but with a timeout or fallback.
-
       const response = await fetch('/api/journal/format-share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: resolveUserId(),
-          messages: messages.map(m => ({
-            role: m.role,
-            content: m.content,
-            card: m.card,
-          })),
+          messages: messages.map(m => ({ role: m.role, content: m.content, card: m.card })),
         }),
       });
 
@@ -1022,258 +380,47 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
       }
 
       if (navigator.share) {
-        try {
-          await navigator.share({ title: shareTitle, text: shareText });
-          pushNotice('success', '共有しました。');
-        } catch (error) {
-          console.error('navigator.share failed:', error);
-          await navigator.clipboard.writeText(shareText);
-          pushNotice('info', '共有メニューの起動に失敗したため、内容をコピーしました。');
-        }
+        await navigator.share({ title: shareTitle, text: shareText });
+        pushNotice('success', '共有しました。');
       } else {
         await navigator.clipboard.writeText(shareText);
         pushNotice('success', 'クリップボードにコピーしました。');
       }
     } catch (error) {
-      console.error('handleShare error:', error);
-      log('共有エラー: ' + (error as Error).message);
-      pushNotice('error', '共有に失敗しました。通信状況をご確認ください。');
+      pushNotice('error', '共有に失敗しました。');
     } finally {
       setIsSharing(false);
     }
-  }, [messages, log, pushNotice]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    sendMessage(input);
-  };
-
-  // Push-to-talk: start on press
-  const handleMicDown = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    if ('type' in e && e.type === 'touchstart') {
-      touchActiveRef.current = true;
-    }
-    if ('pointerType' in e && e.pointerType === 'touch') {
-      touchActiveRef.current = true;
-    }
-    if ('pointerType' in e && e.pointerType === 'mouse' && touchActiveRef.current) {
-      return;
-    }
-    if (isHoldingMicRef.current) return;
-    log('押した');
-
-    if (!sttSupported) {
-      pushNotice('error', 'このブラウザでは音声入力が使えません。', 5000);
-      return;
-    }
-
-    if (isListening) return;
-
-    // Once user starts talking, never allow checkin auto-TTS to run again in this session.
-    checkinTtsHandledRef.current = true;
-    checkinTtsPlayedRef.current = true;
-    checkinTtsAttemptingRef.current = false;
-    checkinTtsAttemptedMessageIdRef.current = '__disabled__';
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
-    }
-
-    // Prioritize microphone: Abort any pending message requests
-    if (abortControllerRef.current) {
-      log('マイク操作を優先するためAIへのリクエストを中断します');
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-      setIsSending(false);
-    }
-
-    stopTTS();
-    unlockAudio();
-    isHoldingMicRef.current = true;
-    heldTranscriptRef.current = '';
-    startListening();
-  };
-
-  // Push-to-talk: send on release
-  const handleMicUp = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    if ('type' in e && e.type === 'touchend') {
-      touchActiveRef.current = false;
-    }
-    if ('pointerType' in e && e.pointerType === 'touch') {
-      touchActiveRef.current = false;
-    }
-    if ('pointerType' in e && e.pointerType === 'mouse' && touchActiveRef.current) {
-      return;
-    }
-    log('離した');
-    isHoldingMicRef.current = false;
-
-    // In native STT mode, stopAndSend dispatches the recognized text via onFinalResult.
-    stopAndSend();
-  };
-
-  const handleMicCancel = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    if (!isListening) return;
-    isHoldingMicRef.current = false;
-    heldTranscriptRef.current = '';
-    cancel();
-  };
-
-  const visibleMessages = messages.length > MAX_RENDER_MESSAGES
-    ? messages.slice(-MAX_RENDER_MESSAGES)
-    : messages;
-  const isMessagesTrimmed = messages.length > MAX_RENDER_MESSAGES;
+  }, [messages, pushNotice]);
 
   return (
     <main className="fixed inset-0 bg-black text-white overflow-hidden flex flex-col">
-      {/* Tap-to-Start Overlay */}
-      <AnimatePresence>
-        {isLoading && (
-          <motion.div
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.45 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[linear-gradient(160deg,#090b0e_0%,#12161e_55%,#080a0d_100%)]"
-            style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif' }}
-          >
-            <div className="pointer-events-none absolute inset-0">
-              <motion.div
-                animate={prefersReducedMotion ? undefined : { x: [0, 20, 0], y: [0, -12, 0] }}
-                transition={prefersReducedMotion ? undefined : { duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute -top-16 -left-10 h-64 w-64 rounded-full bg-white/20 blur-3xl"
-              />
-              <motion.div
-                animate={prefersReducedMotion ? undefined : { x: [0, -18, 0], y: [0, 14, 0] }}
-                transition={prefersReducedMotion ? undefined : { duration: 10, repeat: Infinity, ease: 'easeInOut' }}
-                className="absolute -bottom-16 -right-12 h-72 w-72 rounded-full bg-slate-200/15 blur-3xl"
-              />
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(255,255,255,0.18),transparent_38%),radial-gradient(circle_at_80%_100%,rgba(151,181,255,0.16),transparent_42%)]" />
-            </div>
-            <motion.div
-              initial={{ opacity: 0, y: 18, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              className="relative mx-6 w-full max-w-md rounded-[32px] border border-white/30 bg-white/10 px-8 py-10 backdrop-blur-2xl shadow-[0_24px_90px_rgba(0,0,0,0.5)]"
-            >
-              <div className="mx-auto mb-7 h-1.5 w-14 rounded-full bg-white/45" />
-              <div className="mb-7 text-center">
-                <p className="text-[11px] font-medium tracking-[0.20em] text-white/60">GEORGE TAROT JOURNAL</p>
-                <h1 className="mt-4 text-[26px] font-semibold tracking-[0.02em] text-white">
-                  ジャーナルを始める
-                </h1>
-                <p className="mt-3 text-sm leading-relaxed tracking-[0.01em] text-white/68">
-                  準備ができたら、下のボタンを押してください。
-                </p>
-              </div>
+      {/* Tap-to-start overlay */}
+      <TapToStart
+        isLoading={isLoading}
+        isPreparing={false}
+        initError={initError}
+        showTapHint={showTapHint}
+        onTap={handleTapToStart}
+        onRetry={prepareInBackground}
+      />
 
-              {/* Tap-to-start primary action */}
-              <AnimatePresence>
-                {showTapHint && (
-                  <motion.button
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.6 }}
-                    onPointerUp={() => void handleTapToStart()}
-                    onTouchEnd={!supportsPointerEvents ? () => void handleTapToStart() : undefined}
-                    onClick={() => void handleTapToStart()}
-                    aria-label="タップして始める"
-                    className="group relative w-full overflow-hidden rounded-full bg-white px-8 py-4 transition-all active:scale-[0.985]"
-                  >
-                    <span className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.95),rgba(242,246,255,0.9))]" />
-                    <span className="pointer-events-none absolute inset-x-5 top-0 h-[1px] bg-white/90" />
-                    <motion.p
-                      animate={prefersReducedMotion ? undefined : { opacity: [0.85, 1, 0.85] }}
-                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}
-                      className="relative text-base font-semibold tracking-[0.08em] text-slate-900"
-                    >
-                      タップして始める
-                    </motion.p>
-                  </motion.button>
-                )}
-              </AnimatePresence>
-
-              {/* Retry button when init failed */}
-              {initError && (
-                <motion.button
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.6 }}
-                  onClick={() => prepareInBackground()}
-                  className="mt-4 w-full rounded-full border border-white/25 bg-white/10 px-6 py-3 text-sm text-white/80 transition-colors hover:bg-white/15"
-                >
-                  もう一度試す
-                </motion.button>
-              )}
-
-              <p className="mt-5 text-center text-[11px] tracking-[0.12em] text-white/55">
-                AUDIO READY
-              </p>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-
-      {/* Aurora Glow Effect */}
-      <GlowVisualizer isActive={!prefersReducedMotion && (isListening || isSending || isSpeaking)} />
+      {/* Aurora Glow */}
+      <GlowVisualizer isActive={isListening || isSending || isSpeaking} />
 
       {/* Top Bar */}
-      <div className="relative z-20 flex items-center justify-between px-4 py-3 safe-area-top min-h-[60px]">
-        {/* Left: TTS Toggle */}
-        <div className="flex-1 flex justify-start">
-          <button
-            onClick={() => setTtsEnabled(prev => !prev)}
-            aria-label={ttsEnabled ? '音声をオフ' : '音声をオン'}
-            className="p-2 text-white/50 hover:text-white transition-colors"
-          >
-            {ttsEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
-          </button>
-        </div>
+      <TopBar
+        ttsEnabled={ttsEnabled}
+        onToggleTts={() => setTtsEnabled(!ttsEnabled)}
+        showChat={showChat}
+        onToggleChat={() => setShowChat(!showChat)}
+        onOpenSettings={() => setShowSettings(true)}
+        aiName={bootstrap.identity?.name}
+        isListening={isListening}
+        isSpeaking={isSpeaking}
+      />
 
-        {/* Center: Live Indicator */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 text-white/90">
-          <div className="flex items-center gap-1">
-            <motion.div
-              animate={prefersReducedMotion ? { opacity: 0.8 } : (isListening || isSpeaking ? { opacity: [0.5, 1, 0.5] } : { opacity: 0.8 })}
-              transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1.5 }}
-              className="w-0.5 h-3 bg-white/80 rounded-full"
-            />
-            <motion.div
-              animate={prefersReducedMotion ? { opacity: 0.6 } : (isListening || isSpeaking ? { opacity: [0.3, 0.8, 0.3] } : { opacity: 0.6 })}
-              transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1.5, delay: 0.2 }}
-              className="w-0.5 h-2 bg-white/60 rounded-full"
-            />
-            <motion.div
-              animate={prefersReducedMotion ? { opacity: 0.8 } : (isListening || isSpeaking ? { opacity: [0.5, 1, 0.5] } : { opacity: 0.8 })}
-              transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1.5, delay: 0.4 }}
-              className="w-0.5 h-3 bg-white/80 rounded-full"
-            />
-          </div>
-          <span className="text-sm font-medium tracking-widest uppercase">
-            {bootstrap.identity?.name || 'Live'}
-          </span>
-        </div>
-
-        {/* Right: Actions */}
-        <div className="flex-1 flex justify-end items-center gap-1">
-          <button
-            onClick={() => setShowChat(prev => !prev)}
-            aria-label={showChat ? 'チャットを隠す' : 'チャットを表示'}
-            className="p-2 text-white/50 hover:text-white transition-colors"
-          >
-            {showChat ? <ChevronDown size={22} /> : <MessageSquare size={22} />}
-          </button>
-          <button
-            onClick={() => setShowSettings(true)}
-            aria-label="設定を開く"
-            className="p-2 text-white/50 hover:text-white transition-colors"
-          >
-            <Settings size={20} />
-          </button>
-        </div>
-      </div>
-
+      {/* Settings Modal */}
       <SettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
@@ -1281,230 +428,36 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
         currentAiName={bootstrap.identity?.name || ''}
         currentUserName={bootstrap.user?.name || bootstrap.user?.callName || ''}
         currentVoiceId={bootstrap.identity?.voiceId || ''}
-        currentShowDebug={showDebug}
+        currentShowDebug={bootstrap.identity?.showDebug || false}
         currentBgmEnabled={bootstrap.identity?.bgmEnabled || false}
         onSave={(settings) => {
-          if (settings.showDebug !== undefined) {
-            setShowDebug(settings.showDebug);
-          }
-          // Update local bootstrap state with new values
-          if (settings.aiName || settings.voiceId || settings.showDebug !== undefined || settings.bgmEnabled !== undefined) {
-            setBootstrap(prev => ({
-              ...prev,
-              identity: {
-                ...(prev.identity || {}),
-                name: settings.aiName || prev.identity?.name,
-                voiceId: settings.voiceId || prev.identity?.voiceId,
-                bgmEnabled: settings.bgmEnabled !== undefined ? settings.bgmEnabled : prev.identity?.bgmEnabled
-              }
-            }));
-          }
-          if (settings.userName) {
-            setBootstrap(prev => ({
-              ...prev,
-              user: {
-                ...(prev.user || {}),
-                name: settings.userName,
-                callName: settings.userName
-              }
-            }));
-          }
-          log(`設定を保存しました: AI=${settings.aiName || '変更なし'}, User=${settings.userName || '変更なし'}, Voice=${settings.voiceId || '変更なし'}, Debug=${settings.showDebug !== undefined ? settings.showDebug : '変更なし'}, BGM=${settings.bgmEnabled !== undefined ? settings.bgmEnabled : '変更なし'}`);
+          if (settings.aiName) updateIdentity({ name: settings.aiName });
+          if (settings.voiceId) updateIdentity({ voiceId: settings.voiceId });
+          if (settings.showDebug !== undefined) updateIdentity({ showDebug: settings.showDebug });
+          if (settings.bgmEnabled !== undefined) updateIdentity({ bgmEnabled: settings.bgmEnabled });
+          if (settings.userName) updateUser({ name: settings.userName, callName: settings.userName });
+          log('設定を保存しました');
         }}
       />
 
       {/* Chat Area */}
-      <AnimatePresence>
-        {showChat && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="flex-1 overflow-y-auto px-4 pb-4 z-10"
-          >
-            <div className="max-w-2xl mx-auto space-y-4 pt-4">
-              {isMessagesTrimmed && (
-                <div className="flex justify-center">
-                  <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white/60 text-xs">
-                    古いメッセージは省略表示中です
-                  </div>
-                </div>
-              )}
-              {isPreparing && messages.length === 0 && (
-                <div className="flex justify-start">
-                  <div className="px-4 py-3 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center gap-2">
-                    <motion.div
-                      animate={prefersReducedMotion ? undefined : { rotate: 360 }}
-                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
-                      className="text-white/60"
-                    >
-                      <Loader2 size={16} />
-                    </motion.div>
-                    <span className="text-white/50 text-sm">準備しています...</span>
-                  </div>
-                </div>
-              )}
-              {notice && (
-                <div className="flex justify-center">
-                  <div
-                    className={`px-4 py-3 rounded-2xl text-sm border ${notice.type === 'success'
-                      ? 'bg-green-500/20 border-green-500/30 text-green-100'
-                      : notice.type === 'error'
-                        ? 'bg-red-500/20 border-red-500/30 text-red-100'
-                        : 'bg-white/10 border-white/20 text-white/80'
-                      }`}
-                  >
-                    {notice.message}
-                  </div>
-                </div>
-              )}
-              {initError && (
-                <div className="flex justify-center">
-                  <div className="px-4 py-3 rounded-2xl bg-white/10 border border-white/20 text-white/80 text-sm flex items-center gap-3">
-                    <span>{initError}</span>
-                    <button
-                      onClick={() => prepareInBackground()}
-                      className="px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 text-xs"
-                    >
-                      再試行
-                    </button>
-                  </div>
-                </div>
-              )}
-              {sendError && (
-                <div className="flex justify-center">
-                  <div className="px-4 py-3 rounded-2xl bg-red-500/20 border border-red-500/30 text-red-100 text-sm flex items-center gap-3">
-                    <span>{sendError}</span>
-                    <button
-                      onClick={() => sendMessage(lastSendTextRef.current)}
-                      className="px-3 py-1 rounded-full bg-red-500/40 hover:bg-red-500/60 text-xs"
-                    >
-                      再送
-                    </button>
-                  </div>
-                </div>
-              )}
-              {visibleMessages.map((msg) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  {msg.role === 'tarot' && msg.card ? (
-                    // Tarot card inline display with reveal effect
-                    <div className="w-full max-w-[280px]">
-                      <TarotCardReveal drawnCard={msg.card} className="shadow-lg" />
-                    </div>
-                  ) : (
-                    <div
-                      className={`max-w-[85%] px-4 py-3 rounded-2xl ${msg.role === 'user'
-                        ? 'bg-blue-600/80 text-white'
-                        : 'bg-white/10 backdrop-blur-sm text-white/90'
-                        }`}
-                    >
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                    </div>
-                  )}
-                </motion.div>
-              ))}
+      <ChatArea
+        messages={messages}
+        isSending={isSending}
+        isGeneratingAudio={isGeneratingAudio}
+        showChat={showChat}
+        notice={notice}
+        initError={initError}
+        sendError={sendError}
+        onRetry={prepareInBackground}
+        onResend={handleSendMessage}
+        lastSendText={lastSendTextRef.current}
+        userName={bootstrap.user?.callName || bootstrap.user?.name}
+        aiName={bootstrap.identity?.name}
+      />
 
-              {/* Sending indicator with spinner */}
-              {isSending && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex justify-start"
-                >
-                  <div className="px-4 py-3 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center gap-2">
-                    <motion.div
-                      animate={prefersReducedMotion ? undefined : { rotate: 360 }}
-                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
-                      className="text-white/60"
-                    >
-                      <Loader2 size={16} />
-                    </motion.div>
-                    <span className="text-white/50 text-sm">返信を考えています...</span>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Audio generating indicator */}
-              {isGeneratingAudio && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex justify-start"
-                >
-                  <div className="px-4 py-2 rounded-full bg-white/5 backdrop-blur-sm flex items-center gap-2">
-                    <motion.div
-                      animate={prefersReducedMotion ? undefined : { scale: [1, 1.2, 1] }}
-                      transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1 }}
-                      className="text-white/40"
-                    >
-                      <Volume2 size={14} />
-                    </motion.div>
-                    <span className="text-white/40 text-xs">音声を準備中...</span>
-                  </div>
-                </motion.div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Non-chat mode: Show last message as caption */}
-      {!showChat && messages.length > 0 && (
-        <div className="flex-1 flex items-center justify-center z-10 px-8">
-          <motion.p
-            key={messages[messages.length - 1]?.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-xl md:text-2xl text-center text-white/90 leading-relaxed max-w-md"
-          >
-            {messages[messages.length - 1]?.content}
-          </motion.p>
-        </div>
-      )}
-
-      {/* Non-chat loading state */}
-      {!showChat && messages.length === 0 && isPreparing && (
-        <div className="flex-1 flex items-center justify-center z-10 px-8">
-          <div className="px-4 py-3 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center gap-2">
-            <motion.div
-              animate={prefersReducedMotion ? undefined : { rotate: 360 }}
-              transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
-              className="text-white/60"
-            >
-              <Loader2 size={16} />
-            </motion.div>
-            <span className="text-white/50 text-sm">準備しています...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Non-chat status pill */}
-      {!showChat && (isSending || sendError || initError || notice) && (
-        <div className="absolute bottom-36 left-1/2 -translate-x-1/2 z-40 px-4">
-          <div
-            className={`px-4 py-2 rounded-full text-xs sm:text-sm border backdrop-blur-md ${sendError || initError
-              ? 'bg-red-500/20 border-red-500/30 text-red-100'
-              : notice?.type === 'success'
-                ? 'bg-green-500/20 border-green-500/30 text-green-100'
-                : notice?.type === 'error'
-                  ? 'bg-red-500/20 border-red-500/30 text-red-100'
-                  : 'bg-white/10 border-white/20 text-white/80'
-              }`}
-          >
-            {isSending ? '送信中...' : sendError || initError || notice?.message}
-          </div>
-        </div>
-      )}
-
-      {/* Debug Log - Only visible when enabled in settings or in development by default */}
-      {showDebug === true && (
+      {/* Debug Log */}
+      {bootstrap.identity?.showDebug === true && (
         <div className="absolute top-[65px] left-4 z-50 pointer-events-none max-w-[250px]">
           <div className="bg-black/60 backdrop-blur-md rounded-md p-2 font-mono text-[10px] sm:text-[12px] text-green-400 border border-green-500/20">
             <div className="flex gap-2 mb-1 border-b border-white/10 pb-1">
@@ -1518,254 +471,49 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
         </div>
       )}
 
-      {/* Listening indicator with current transcript */}
-      {isListening && (
-        <div className="absolute bottom-40 left-0 right-0 flex justify-center z-30 px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white/10 backdrop-blur-md rounded-2xl px-6 py-3 max-w-md"
-          >
-            <p className="text-white/80 text-sm text-center">
-              {(heldTranscriptRef.current ? `${heldTranscriptRef.current} ${currentTranscript}`.trim() : currentTranscript) || '押したまま話してください...'}
-            </p>
-          </motion.div>
+      {/* Non-chat status pill */}
+      {!showChat && (isSending || sendError || initError || notice) && (
+        <div className="absolute bottom-36 left-1/2 -translate-x-1/2 z-40 px-4">
+          <div className="px-4 py-2 rounded-full text-xs sm:text-sm border backdrop-blur-md bg-white/10 border-white/20 text-white/80">
+            {isSending ? '送信中...' : sendError || initError || notice?.message}
+          </div>
         </div>
       )}
 
       {/* Bottom Controls */}
-      <div className="relative z-20 p-4 safe-area-bottom pb-6">
-        <div className="max-w-2xl mx-auto px-2">
-          {/* Input Form */}
-          <form onSubmit={handleSubmit} className="flex items-center gap-3 mb-4">
-            <div className="flex-1 flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 border border-white/20">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="メッセージを入力..."
-                className="flex-1 bg-transparent text-white placeholder-white/40 outline-none text-base"
-                disabled={isSending || isListening}
-              />
-              <motion.button
-                type="submit"
-                whileTap={{ scale: 0.9 }}
-                disabled={!input.trim() || isSending}
-                className="p-2 rounded-full bg-blue-600 text-white disabled:opacity-50"
-              >
-                <Send size={16} />
-              </motion.button>
-            </div>
-          </form>
-
-          {/* Action Buttons */}
-          <div className="flex items-center justify-center gap-4 sm:gap-6">
-            {/* Tarot & Radio Section */}
-            <div className="flex-1 flex justify-end items-center gap-3 sm:gap-4">
-              <motion.button
-                onClick={() => {
-                  setShowRadio(true);
-                  setRadioNotification(null);
-                }}
-                whileTap={{ scale: 0.95 }}
-                title="Weekly Radio"
-                aria-label="ウィークリーラジオを開く"
-                className="p-4 rounded-full bg-white/10 backdrop-blur-sm text-gold-400 hover:bg-white/20 border border-gold-500/30 transition-all shadow-[0_0_15px_rgba(212,175,55,0.2)] relative"
-              >
-                <Radio size={24} />
-                {radioNotification && (
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-black"
-                  />
-                )}
-              </motion.button>
-              <TarotDrawButton
-                disabled={isSending || isListening || isShuffleOpen}
-                onCardDrawn={() => setIsShuffleOpen(true)}
-              />
-            </div>
-
-            <TarotDeckShuffle
-              isOpen={isShuffleOpen}
-              onCardSelected={processTarotDraw}
-              onClose={() => setIsShuffleOpen(false)}
-            />
-
-
-            {/* Mic Button - Push to talk (Center) */}
-            <motion.div className="relative">
-              <AnimatePresence>
-                {isListening && (
-                  <>
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={prefersReducedMotion ? { opacity: 0.25, scale: 1 } : {
-                        opacity: [0, 0.4, 0],
-                        scale: [1, 1.5, 1.8],
-                      }}
-                      transition={prefersReducedMotion ? undefined : {
-                        repeat: Infinity,
-                        duration: 1.5,
-                        ease: "easeOut"
-                      }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      className="absolute inset-0 rounded-full bg-red-500 blur-xl"
-                    />
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={prefersReducedMotion ? { opacity: 0.2, scale: 1 } : {
-                        opacity: [0, 0.6, 0],
-                        scale: [1, 1.3, 1.5],
-                      }}
-                      transition={prefersReducedMotion ? undefined : {
-                        repeat: Infinity,
-                        duration: 1.5,
-                        delay: 0.2,
-                        ease: "easeOut"
-                      }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      className="absolute inset-0 rounded-full bg-red-400 blur-lg"
-                    />
-                  </>
-                )}
-              </AnimatePresence>
-              <motion.button
-                onPointerDown={handleMicDown}
-                onPointerUp={handleMicUp}
-                onPointerCancel={handleMicCancel}
-                onTouchStart={!supportsPointerEvents ? handleMicDown : undefined}
-                onTouchEnd={!supportsPointerEvents ? handleMicUp : undefined}
-                onMouseDown={!supportsPointerEvents ? handleMicDown : undefined}
-                onMouseUp={!supportsPointerEvents ? handleMicUp : undefined}
-                whileTap={{ scale: 0.95 }}
-                disabled={!sttSupported}
-                aria-label="マイクを押して話す"
-                className={`p-5 sm:p-6 rounded-full transition-all select-none relative z-10 touch-none ${isListening
-                  ? 'bg-red-500 text-white scale-110 shadow-lg shadow-red-500/40'
-                  : 'bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10'
-                  } ${!sttSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <Mic size={28} className="sm:w-8 sm:h-8" />
-              </motion.button>
-            </motion.div>
-
-            <div className="flex-1 flex justify-start gap-3 sm:gap-4">
-              <motion.button
-                onClick={handleSave}
-                disabled={isSending || messages.length === 0 || isSummarizing}
-                whileTap={{ scale: 0.95 }}
-                title="要約して保存"
-                aria-label="要約して保存"
-                className={`p-3 sm:p-4 rounded-full bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10 transition-all ${isSending || messages.length === 0 ? 'opacity-20 cursor-not-allowed' : ''}`}
-              >
-                {isSummarizing ? (
-                  <motion.div
-                    animate={prefersReducedMotion ? undefined : { rotate: 360 }}
-                    transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
-                  >
-                    <Loader2 size={18} className="sm:w-6 sm:h-6" />
-                  </motion.div>
-                ) : (
-                  <Download size={18} className="sm:w-6 sm:h-6" />
-                )}
-              </motion.button>
-              <motion.button
-                onClick={handleShare}
-                disabled={isSending || isSharing || messages.length === 0}
-                whileTap={{ scale: 0.95 }}
-                title="スマホに共有"
-                aria-label="共有する"
-                className={`p-3 sm:p-4 rounded-full bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 border border-white/10 transition-all ${isSending || messages.length === 0 ? 'opacity-20 cursor-not-allowed' : ''}`}
-              >
-                {isSharing ? (
-                  <motion.div
-                    animate={prefersReducedMotion ? undefined : { rotate: 360 }}
-                    transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1, ease: "linear" }}
-                  >
-                    <Loader2 size={18} className="sm:w-6 sm:h-6" />
-                  </motion.div>
-                ) : (
-                  <Share2 size={18} className="sm:w-6 sm:h-6" />
-                )}
-              </motion.button>
-            </div>
-
-          </div>
-        </div>
-      </div>
-      <audio
-        ref={audioRef}
-        onPlay={() => {
-          const audio = audioRef.current;
-          if (!audio) return;
-          log(`audio onPlay (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
+      <BottomControls
+        input={input}
+        onInputChange={setInput}
+        onSubmit={handleSubmit}
+        isSending={isSending}
+        isListening={isListening}
+        messages={messages}
+        isSummarizing={isSummarizing}
+        isSharing={isSharing}
+        sttSupported={sttSupported}
+        currentTranscript={currentTranscript}
+        heldTranscript={heldTranscriptRef.current}
+        isShuffleOpen={isShuffleOpen}
+        onMicDown={handleMicDown}
+        onMicUp={handleMicUp}
+        onMicCancel={handleMicCancel}
+        onSave={handleSave}
+        onShare={handleShare}
+        onOpenRadio={() => {
+          setShowRadio(true);
+          setRadioNotification(null);
         }}
-        onPlaying={() => {
-          const audio = audioRef.current;
-          if (!audio) return;
-          log(`audio onPlaying (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
-        }}
-        onPause={() => {
-          const audio = audioRef.current;
-          if (!audio) return;
-          // Avoid spam when stopTTS intentionally clears.
-          if (suppressAudioErrorRef.current) return;
-          log(`audio onPause (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
-        }}
-        onWaiting={() => {
-          const audio = audioRef.current;
-          if (!audio) return;
-          log(`audio onWaiting (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
-        }}
-        onStalled={() => {
-          const audio = audioRef.current;
-          if (!audio) return;
-          log(`audio onStalled (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
-        }}
-        onEnded={() => {
-          setIsSpeaking(false);
-          const audio = audioRef.current;
-          if (!audio) return;
-          const currentSrc = audio.currentSrc || audio.getAttribute('src') || '';
-          if (currentSrc.startsWith('blob:')) {
-            URL.revokeObjectURL(currentSrc);
-          }
-          audio.removeAttribute('src');
-          audio.load();
-        }}
-        onError={() => {
-          const audio = audioRef.current;
-          if (!audio) {
-            return;
-          }
-          const currentSrc = audio.currentSrc || audio.getAttribute('src') || '';
-          const mediaErrorCode = audio.error?.code;
-          if (
-            suppressAudioErrorRef.current
-            || !currentSrc
-            || mediaErrorCode === MediaError.MEDIA_ERR_ABORTED
-          ) {
-            return;
-          }
-          log('音声要素エラー');
-          setIsSpeaking(false);
-          if (currentSrc.startsWith('blob:')) {
-            URL.revokeObjectURL(currentSrc);
-          }
-          audio.removeAttribute('src');
-          audio.load();
-        }}
-        style={{ display: 'none' }}
-      />
-      <audio
-        ref={bgmRef}
-        src="/audio/bar-bgm.mp3"
-        loop
-        style={{ display: 'none' }}
+        onOpenShuffle={() => setIsShuffleOpen(true)}
+        onCloseShuffle={() => setIsShuffleOpen(false)}
+        onCardSelected={processTarotDraw}
+        radioNotification={radioNotification}
       />
 
+      {/* Audio elements */}
+      <audio ref={audioRef} style={{ display: 'none' }} />
+      <audio ref={bgmRef} src="/audio/bar-bgm.mp3" loop style={{ display: 'none' }} />
+
+      {/* George Radio */}
       <GeorgeRadio
         isOpen={showRadio}
         onClose={() => setShowRadio(false)}
@@ -1808,6 +556,6 @@ ${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || boot
           </motion.div>
         )}
       </AnimatePresence>
-    </main >
+    </main>
   );
 }
