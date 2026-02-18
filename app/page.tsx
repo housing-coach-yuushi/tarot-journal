@@ -249,11 +249,14 @@ export default function Home() {
     await unlockAudio();
     
     // Play checkin TTS after tap (iOS autoplay workaround)
-    if (ttsEnabled && messages.length > 0 && messages[0].id.startsWith('checkin-')) {
+    // Use checkinLines state which is set during background preparation
+    if (ttsEnabled && checkinLines && checkinLines.length > 0) {
       log('タップ後チェックイン音声再生');
-      void playTTS(messages[0].content.trim());
+      const success = await playTTS(checkinLines.join('\n').trim());
+      log(`チェックイン音声: ${success ? '成功' : '失敗'}`);
+      checkinTtsPlayedRef.current = true;
     }
-  }, [unlockAudio, ttsEnabled, messages, playTTS, log]);
+  }, [unlockAudio, ttsEnabled, checkinLines, playTTS, log]);
 
   const handleSendMessage = useCallback(async (text: string) => {
     window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
