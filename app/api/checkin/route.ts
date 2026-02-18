@@ -9,59 +9,41 @@ function normalizeUserId(raw: string | null): string | null {
   return id;
 }
 
-const CHECKIN_PROMPTS = {
-  morning: {
-    first: [
-      'おはようございます\n新しい一日の始まりに、ジャーナルを開きましょう\n心を静かにして、今日の自分に意識を向けて...',
-      'おはようございます\n今日はどんな一日にしたいですか？\nゆっくり呼吸を整えて...',
-      'おはようございます\n朝の静かな時間に、自分と向き合いましょう\n今の気持ちに意識を向けて...',
-      'おはようございます\n新しい朝が来ましたね\n今日の intentions を一緒に見つけましょう...',
-    ],
-    second: [
-      'おはようございます\n今日二回目のジャーナルですね\n今の気分はいかがですか？',
-      'おはようございます\n朝の間にもう一度、自分をチェックしましょう\n何か気になることはありますか？',
-    ],
-  },
-  afternoon: {
-    first: [
-      'こんにちは\n昼休みにジャーナルを開きましょう\n午前中を振り返ってみませんか？',
-      'こんにちは\n今日はどんな午前でしたか？\n今の気持ちに意識を向けて...',
-      'こんにちは\n一日の半ばで、少し立ち止まってみましょう\n今の状態を確認してみませんか？',
-    ],
-    second: [
-      'こんにちは\n今日二回目のジャーナルですね\n午後の調子はいかがですか？',
-      'こんにちは\nまた来てくれましたね\n今一番気になっていることは何ですか？',
-    ],
-  },
-  evening: {
-    first: [
-      'こんばんは\n一日おつかれさまでした\n今日を振り返るジャーナルの時間です',
-      'こんばんは\n夜の静けさの中で、自分と向き合いましょう\n今日はどんな一日でしたか？',
-      'こんばんは\n今日という一日を、一緒に振り返ってみませんか？\n心を落ち着かせて...',
-    ],
-    second: [
-      'こんばんは\n今日二回目のジャーナルですね\n夜のチェックインをしましょう',
-      'こんばんは\nまた来てくれましたね\n今の気分はいかがですか？',
-    ],
-  },
-  night: {
-    first: [
-      'おつかれさまでした\n深い夜に、自分と向き合いましょう\n今日一番印象に残っていることは何ですか？',
-      'おやすみ前のジャーナルですね\n今日を締めくくる言葉を探してみましょう',
-      '静かな夜ですね\n一日を振り返って、心を整えましょう\n明日への準備を...',
-    ],
-    second: [
-      '今日二回目のジャーナルですね\n夜も更けてきました\n今思っていることを話してみませんか？',
-      'また来てくれましたね\n静かな夜に、自分の内側に意識を向けて...',
-    ],
-  },
-};
+const CHECKIN_PROMPT = `あなたはタロットジャーナルアプリのチェックインガイドです。
+ユーザーがこれからジャーナルをつけ始めるにあたって、心を落ち着かせ、自分の内面に意識を向けるための短い言葉を生成してください。
 
-function getTimeOfDay(hour: number): 'morning' | 'afternoon' | 'evening' | 'night' {
-  if (hour >= 5 && hour < 12) return 'morning';
-  if (hour >= 12 && hour < 17) return 'afternoon';
-  if (hour >= 17 && hour < 21) return 'evening';
-  return 'night';
+ルール:
+- 2〜3行で構成する
+  - 1行目: 挨拶（時間帯に合わせて）
+  - 2行目: ジャーナルへの導入
+  - 3行目: チェックイン（意識を内側に向ける誘導）
+- 合計で60文字以内に収める
+- 毎回違う表現を使う
+- 詩的すぎず、シンプルで温かい言葉
+
+コンテキスト:
+- 今日の日付: {{date}}
+- 時間帯: {{timeOfDay}}
+- 曜日: {{dayOfWeek}}
+- 季節: {{season}}
+- セッション回数: 今日{{sessionCount}}回目
+{{userName}}
+
+{{sessionHint}}
+
+出力形式（2〜3行だけを返すこと。余計な説明は不要）`;
+
+function getTimeOfDay(hour: number): string {
+  if (hour >= 5 && hour < 12) return '朝';
+  if (hour >= 12 && hour < 17) return '昼';
+  if (hour >= 17 && hour < 21) return '夕方';
+  return '夜';
+}
+
+function getSessionHint(count: number): string {
+  if (count === 1) return 'ヒント: 初回のジャーナル。新しい一日の始まりを意識した言葉で。';
+  if (count === 2) return 'ヒント: 今日2回目のジャーナル。続けていることを肯定しつつ、今の状態をチェックする言葉で。';
+  return `ヒント: 今日${count}回目のジャーナル。継続を認めつつ、今の気持ちに寄り添う言葉で。`;
 }
 
 export async function GET(request: NextRequest) {
@@ -71,7 +53,7 @@ export async function GET(request: NextRequest) {
     const sessionCount = parseInt(searchParams.get('sessionCount') || '1', 10);
     const userId = rawUserId ? await resolveCanonicalUserId(rawUserId) : null;
 
-    // Use Tokyo timezone (JST) for all date/time calculations
+    // Use Tokyo timezone (JST)
     const now = new Date();
     const parts = new Intl.DateTimeFormat('ja-JP', {
       timeZone: 'Asia/Tokyo',
@@ -95,58 +77,38 @@ export async function GET(request: NextRequest) {
     const seasons = ['冬', '冬', '春', '春', '春', '夏', '夏', '夏', '秋', '秋', '秋', '冬'];
     const season = seasons[month - 1];
 
-    // Get appropriate prompts
-    const isFirst = sessionCount <= 1;
-    const promptsForTime = CHECKIN_PROMPTS[timeOfDay];
-    const prompts = isFirst ? promptsForTime.first : promptsForTime.second;
-    const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
-
-    // If user has a name, try to personalize
+    // Get user name if available
     let userName = '';
     if (userId) {
       const userProfile = await getUserProfile(userId).catch(() => null);
       if (userProfile?.displayName) {
-        userName = userProfile.displayName;
+        userName = `- ユーザーの名前: ${userProfile.displayName}`;
       }
     }
 
-    // Build personalized prompt with Claude
-    const systemPrompt = `あなたはタロットジャーナルアプリのチェックインガイドです。
-以下のベースとなるチェックイン文章を、少しアレンジしてください。
+    const sessionHint = getSessionHint(sessionCount);
 
-ルール:
-- ベースの文章の意味を保つ
-- 少し変化をつける（言葉選び、リズムなど）
-- 温かく、シンプルに
-- 2〜3行で構成
-- 合計60文字以内
+    const prompt = CHECKIN_PROMPT
+      .replace('{{date}}', dateStr)
+      .replace('{{timeOfDay}}', timeOfDay)
+      .replace('{{dayOfWeek}}', dayOfWeek)
+      .replace('{{season}}', season)
+      .replace('{{sessionCount}}', String(sessionCount))
+      .replace('{{userName}}', userName)
+      .replace('{{sessionHint}}', sessionHint);
 
-${userName ? `- ユーザーの名前: ${userName}（自然に取り入れる）` : ''}
+    const result = await chatWithClaude([
+      { role: 'system', content: prompt },
+      { role: 'user', content: '今のチェックインの言葉をください' },
+    ]);
 
-今日の日付: ${dateStr}
-曜日: ${dayOfWeek}
-季節: ${season}
-セッション回数: 今日${sessionCount}回目`;
-
-    try {
-      const result = await chatWithClaude([
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `ベースの文章:\n${randomPrompt}\n\nこれを少しアレンジしてください。` },
-      ]);
-
-      const lines = result.trim().split('\n').filter(l => l.trim());
-      if (lines.length > 0) {
-        return NextResponse.json({ lines, sessionCount });
-      }
-    } catch (e) {
-      console.warn('Claude checkin failed, using fallback:', e);
+    const lines = result.trim().split('\n').filter(l => l.trim());
+    
+    if (lines.length === 0) {
+      lines.push('自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...');
     }
 
-    // Fallback to random prompt
-    return NextResponse.json({ 
-      lines: randomPrompt.split('\n').filter(l => l.trim()),
-      sessionCount 
-    });
+    return NextResponse.json({ lines, sessionCount });
   } catch (error) {
     console.error('Checkin API error:', error);
     return NextResponse.json({
