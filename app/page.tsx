@@ -52,6 +52,7 @@ export default function Home() {
   const checkinTtsPlayedRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
   const heldTranscriptRef = useRef<string>('');
+  const initializedRef = useRef<boolean>(false);
 
   // Hooks
   const { notice, pushNotice, clearNotice } = useNotice();
@@ -163,6 +164,13 @@ export default function Home() {
 
   // Background preparation
   const prepareInBackground = useCallback(async () => {
+    // Only run once
+    if (initializedRef.current) {
+      log('既に初期化済み、スキップ');
+      return;
+    }
+    initializedRef.current = true;
+
     try {
       log('バックグラウンド準備開始...');
       setInitError(null);
@@ -211,6 +219,7 @@ export default function Home() {
       const errMsg = error instanceof Error ? error.message : String(error);
       log(`初期化エラー: ${errMsg}`);
       setInitError('通信に失敗しました。再試行してください。');
+      initializedRef.current = false; // Allow retry on error
     } finally {
       setIsLoading(false);
     }
