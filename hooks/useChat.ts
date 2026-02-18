@@ -16,6 +16,7 @@ interface UseChatOptions {
   onLog?: (msg: string) => void;
   onError?: (error: string) => void;
   onBootstrapUpdate?: (data: { identity?: unknown; user?: unknown; isBootstrapped?: boolean }) => void;
+  onResponse?: (message: string) => void;
 }
 
 interface UseChatReturn {
@@ -30,7 +31,7 @@ interface UseChatReturn {
 }
 
 export function useChat(options: UseChatOptions): UseChatReturn {
-  const { userId, onLog, onError, onBootstrapUpdate } = options;
+  const { userId, onLog, onError, onBootstrapUpdate, onResponse } = options;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
@@ -132,6 +133,11 @@ export function useChat(options: UseChatOptions): UseChatReturn {
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, assistantMessage]);
+        
+        // Call onResponse callback for TTS
+        if (data.message) {
+          onResponse?.(data.message);
+        }
       } else {
         const errorData = await response.json().catch(() => ({}));
         log('APIエラー: ' + (errorData.error || response.status));

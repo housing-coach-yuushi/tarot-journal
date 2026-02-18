@@ -103,6 +103,13 @@ export default function Home() {
         setBootstrap(prev => ({ ...prev, isBootstrapped: data.isBootstrapped as boolean }));
       }
     },
+    onResponse: (message) => {
+      // Play TTS for AI response
+      if (ttsEnabled && message) {
+        log('AI返信の音声生成開始');
+        void playTTS(message);
+      }
+    },
   });
 
   const { isShuffleOpen, setIsShuffleOpen, processTarotDraw } = useTarot({
@@ -229,27 +236,18 @@ export default function Home() {
     prepareInBackground();
   }, [prepareInBackground]);
 
-  // Checkin TTS
+  // Checkin TTS - Skip for now due to iOS autoplay restrictions
+  // Users will hear TTS after their first interaction
   useEffect(() => {
     if (isLoading) return;
-    if (messages.length > 2) return;
-    if (typeof window !== 'undefined' && window.sessionStorage.getItem(CHECKIN_TTS_SESSION_KEY) === '1') return;
-    if (checkinTtsPlayedRef.current || !ttsEnabled) return;
-
-    const firstMessage = messages[0];
-    if (!firstMessage || firstMessage.role !== 'assistant' || !firstMessage.id.startsWith('checkin-')) return;
-
-    window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
+    
+    // Mark checkin TTS as handled so it doesn't try later
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(CHECKIN_TTS_SESSION_KEY, '1');
+    }
     checkinTtsPlayedRef.current = true;
-
-    const tryPlay = async () => {
-      log('チェックイン音声生成開始');
-      const success = await playTTS(firstMessage.content.trim());
-      log(`チェックイン音声再生: ${success ? '成功' : '失敗'}`);
-    };
-
-    void tryPlay();
-  }, [isLoading, messages, playTTS, log, ttsEnabled]);
+    log('チェックイン音声はスキップ（iOS自動再生制限対応）');
+  }, [isLoading, log]);
 
   // Handlers
   const handleTapToStart = useCallback(async () => {
