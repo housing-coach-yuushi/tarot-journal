@@ -1,12 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatWithClaude } from '@/lib/anthropic/client';
-import { getUserProfile, getConversationHistory, resolveCanonicalUserId } from '@/lib/db/redis';
+import { getUserProfile, redis, resolveCanonicalUserId } from '@/lib/db/redis';
 
 function normalizeUserId(raw: string | null): string | null {
   if (!raw) return null;
   const id = raw.trim();
   if (!id || id === 'default') return null;
   return id;
+}
+
+const SESSION_PREFIX = 'tarot-journal:session:';
+const SESSION_TTL_SEC = 60 * 60 * 24; // 1 day
+
+async function getSessionCount(userId: string, dateStr: string): Promise<number> {
+  const key = `${SESSION_PREFIX}${userId}:${dateStr}`;
+  const count = await redis.get<number>(key);
+  return count || 0;
+}
+
+async function incrementSessionCount(userId: string, dateStr: string): Promise<number> {
+  const key = `${SESSION_PREFIX}${userId}:${dateStr}`;
+  const current = await getSessionCount(userId, dateStr);
+  const newCount = current + 1;
+  await redis.set(key, newCount);
+  await redis.expire(key, SESSION_TTL_SEC);
+  return newCount;
 }
 
 const CHECKIN_PROMPT = `あなたはタロットジャーナルアプリのチェックインガイドです。
@@ -50,8 +68,12 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const rawUserId = normalizeUserId(searchParams.get('userId'));
-    const sessionCount = parseInt(searchParams.get('sessionCount') || '1', 10);
-    const userId = rawUserId ? await resolveCanonicalUserId(rawUserId) : null;
+    
+    if (!rawUserId) {
+      return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+    }
+    
+    const userId = await resolveCanonicalUserId(rawUserId);
 
     // Use Tokyo timezone (JST)
     const now = new Date();
@@ -74,16 +96,18 @@ export async function GET(request: NextRequest) {
 
     const timeOfDay = getTimeOfDay(hour);
     const dateStr = `${year}年${month}月${day}日`;
+    const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const seasons = ['冬', '冬', '春', '春', '春', '夏', '夏', '夏', '秋', '秋', '秋', '冬'];
     const season = seasons[month - 1];
 
+    // Get and increment session count from Redis
+    const sessionCount = await incrementSessionCount(userId, dateKey);
+
     // Get user name if available
     let userName = '';
-    if (userId) {
-      const userProfile = await getUserProfile(userId).catch(() => null);
-      if (userProfile?.displayName) {
-        userName = `- ユーザーの名前: ${userProfile.displayName}`;
-      }
+    const userProfile = await getUserProfile(userId).catch(() => null);
+    if (userProfile?.displayName) {
+      userName = `- ユーザーの名前: ${userProfile.displayName}`;
     }
 
     const sessionHint = getSessionHint(sessionCount);

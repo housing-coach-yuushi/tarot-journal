@@ -50,47 +50,8 @@ export default function Home() {
 
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const checkinTtsPlayedRef = useRef<boolean>(false);
-  const hasHistoryRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
   const heldTranscriptRef = useRef<string>('');
-
-  // Get today's date in JST
-  const getTodayDate = useCallback(() => {
-    return new Intl.DateTimeFormat('ja-JP', {
-      timeZone: 'Asia/Tokyo',
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-    }).format(new Date());
-  }, []);
-
-  // Load session count from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem('tarot-journal-session');
-    if (stored) {
-      try {
-        const data = JSON.parse(stored);
-        const today = getTodayDate();
-        if (data.date === today) {
-          setSessionCount(data.count || 1);
-        } else {
-          // New day, reset count
-          setSessionCount(1);
-          localStorage.setItem('tarot-journal-session', JSON.stringify({ date: today, count: 1 }));
-        }
-      } catch {
-        setSessionCount(1);
-      }
-    }
-  }, [getTodayDate]);
-
-  // Increment session count
-  const incrementSessionCount = useCallback(() => {
-    const today = getTodayDate();
-    const newCount = sessionCount + 1;
-    setSessionCount(newCount);
-    localStorage.setItem('tarot-journal-session', JSON.stringify({ date: today, count: newCount }));
-  }, [sessionCount, getTodayDate]);
 
   // Hooks
   const { notice, pushNotice, clearNotice } = useNotice();
@@ -215,31 +176,13 @@ export default function Home() {
       const status = await statusRes.json();
       setBootstrap(status);
 
-      // Always show checkin (every session starts fresh)
-      const today = getTodayDate();
-      const storedSession = localStorage.getItem('tarot-journal-session');
-      let currentCount = 1;
-      
-      if (storedSession) {
-        try {
-          const data = JSON.parse(storedSession);
-          if (data.date === today) {
-            currentCount = (data.count || 0) + 1;
-          }
-        } catch {
-          // ignore
-        }
-      }
-      
-      localStorage.setItem('tarot-journal-session', JSON.stringify({ date: today, count: currentCount }));
-      setSessionCount(currentCount);
-
-      // Fetch checkin lines with session count
+      // Fetch checkin lines (session count is managed by Redis on server)
       try {
-        const res = await fetch(`/api/checkin?userId=${currentUserId}&sessionCount=${currentCount}`);
+        const res = await fetch(`/api/checkin?userId=${currentUserId}`);
         if (res.ok) {
           const data = await res.json();
           setCheckinLines(data.lines);
+          setSessionCount(data.sessionCount || 1);
         }
       } catch {
         // ignore
@@ -267,7 +210,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [log, setBootstrap, checkinLines, getTodayDate]);
+  }, [log, setBootstrap, checkinLines]);
 
   useEffect(() => {
     prepareInBackground();
@@ -276,7 +219,6 @@ export default function Home() {
   // Checkin TTS
   useEffect(() => {
     if (isLoading) return;
-    if (hasHistoryRef.current) return;
     if (messages.length > 2) return;
     if (typeof window !== 'undefined' && window.sessionStorage.getItem(CHECKIN_TTS_SESSION_KEY) === '1') return;
     if (checkinTtsPlayedRef.current || !ttsEnabled) return;
