@@ -118,6 +118,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
     if (typeof window === 'undefined') return false;
     stopDeepgramTTS();
 
+    log('TTS APIリクエスト開始');
     const response = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -129,8 +130,11 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
 
     if (!response.ok) {
       const details = await response.text().catch(() => '');
+      log(`TTS API エラー: ${response.status} ${details}`);
       throw new Error(`TTS API error: ${response.status} ${details}`);
     }
+
+    log('TTS API レスポンス受信');
 
     if (version !== ttsVersionRef.current) return false;
     if (!audioRef.current) throw new Error('audio element missing');
@@ -236,9 +240,10 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       if (ok) return true;
       setIsGeneratingAudio(false);
       return false;
-    } catch (error) {
-      const message = (error as Error).message || 'unknown';
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
       log('音声再生失敗: ' + message);
+      console.error('[TTS] Full error:', error);
 
       const lower = message.toLowerCase();
       const isPlaybackBlocked =
