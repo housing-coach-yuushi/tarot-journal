@@ -526,18 +526,12 @@ export default function Home() {
         const currentUserId = getUserId();
         setUserId(currentUserId);
 
-        // Fetch status (history) first to speed up returning users
+        // Fetch status (history) first
         const statusRes = await fetchWithTimeout(`/api/chat?userId=${currentUserId}`);
         const status = await statusRes.json();
+        setBootstrap(status);
 
-        if (status?.history && status.history.length > 0) {
-          hasHistoryRef.current = true;
-          initDataRef.current = { message: '', audioUrl: null, status };
-          log(`履歴あり: ${status.history.length}件`);
-          return;
-        }
-
-        // No history: fetch checkin lines (text only)
+        // Always show checkin first (even with history)
         let lines: string[] | null = null;
         try {
           const res = await fetchWithTimeout(`/api/checkin?userId=${currentUserId}`);
@@ -550,7 +544,15 @@ export default function Home() {
           // ignore
         }
 
-        setBootstrap(status);
+        // If history exists, restore it after checkin
+        if (status?.history && status.history.length > 0) {
+          hasHistoryRef.current = true;
+          initDataRef.current = { message: '', audioUrl: null, status };
+          log(`履歴あり: ${status.history.length}件`);
+          // Don't return - show checkin first
+        }
+
+        // Show checkin message
         const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
         const checkin = lines && lines.length > 0 ? lines : fallbackLines;
         const checkinMessage: Message = {
@@ -566,7 +568,7 @@ export default function Home() {
           timestamp: new Date(),
         };
         setMessages([checkinMessage, guideMessage]);
-        log('履歴なし。チェックインのみ表示します');
+        log('チェックインを表示');
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log(`初期化エラー詳細: ${errMsg}`);
