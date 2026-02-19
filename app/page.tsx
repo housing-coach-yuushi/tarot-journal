@@ -824,6 +824,7 @@ export default function Home() {
 
     try {
       const requestUserId = resolveUserId();
+      
       // Step 1: Get summary from AI
       const summarizeResponse = await fetch('/api/journal/summarize', {
         method: 'POST',
@@ -843,63 +844,50 @@ export default function Home() {
       const summaryData = await summarizeResponse.json();
       log('要約完了: ' + summaryData.title);
 
-      // Step 2: Save to Obsidian
-      log('Obsidianに保存中...');
-      const saveResponse = await fetch('/api/journal/save-to-obsidian', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: summaryData.title,
-          summary: summaryData.summary,
-          messages: messages.map(m => ({ role: m.role, content: m.content })),
-          userName: bootstrap.user?.callName || bootstrap.user?.name || 'わたし',
-          aiName: bootstrap.identity?.name || 'ジョージ',
-        }),
-      });
+      // Step 2: Download as markdown file
+      const dateStr = new Date().toISOString().split('T')[0];
+      const timeStr = new Date().toTimeString().split(' ')[0].replace(/:/g, '-');
+      const userName = bootstrap.user?.callName || bootstrap.user?.name || 'わたし';
+      const aiName = bootstrap.identity?.name || 'ジョージ';
 
-      if (saveResponse.ok) {
-        const saveData = await saveResponse.json();
-        log('Obsidian保存完了: ' + saveData.filename);
-        pushNotice('success', 'Obsidianに保存しました。');
-      } else {
-        const errorData = await saveResponse.json();
-        log('Obsidian保存失敗: ' + (errorData.details || errorData.error));
-        // alert('Obsidianへの保存に失敗しました。ダウンロードします。'); // Remove error alert
-
-        // Fallback: Download file
-        const dateStr = new Date().toISOString().split('T')[0];
-        const markdownContent = `---
+      const markdownContent = `---
 title: "${summaryData.title}"
 date: ${dateStr}
+time: ${timeStr}
 tags:
   - tarot
   - journal
 ---
 
 # ${summaryData.title}
-**日付:** ${dateStr}
+
+**日付:** ${dateStr} ${timeStr}
 
 ## 要約
+
 ${summaryData.summary}
 
 ## 対話履歴
-${messages.map(m => `### ${m.role === 'user' ? (bootstrap.user?.callName || bootstrap.user?.name || 'わたし') : (bootstrap.identity?.name || 'ジョージ')}\n${m.content}`).join('\n\n')}
-`;
-        const blob = new Blob([markdownContent], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${dateStr}.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
 
-        // Delay revoke to ensure download starts
-        setTimeout(() => {
-          URL.revokeObjectURL(url);
-        }, 1000);
-        pushNotice('info', 'Obsidian保存に失敗したため、ファイルをダウンロードしました。');
-      }
+${messages.map(m => `### ${m.role === 'user' ? userName : aiName}\n\n${m.content}`).join('\n\n---\n\n')}
+`;
+
+      const blob = new Blob([markdownContent], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${dateStr}-${timeStr}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      // Delay revoke to ensure download starts
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 1000);
+
+      log('ダウンロード完了');
+      pushNotice('success', 'ジャーナルをダウンロードしました。');
     } catch (error) {
       log('保存エラー: ' + (error as Error).message);
       pushNotice('error', '保存に失敗しました。通信状況をご確認ください。');
