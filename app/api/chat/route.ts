@@ -183,6 +183,8 @@ export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const normalizedUserId = normalizeUserId(searchParams.get('userId'));
+        const includeHistoryParam = (searchParams.get('includeHistory') || '').toLowerCase();
+        const includeHistory = !(includeHistoryParam === '0' || includeHistoryParam === 'false');
         if (!normalizedUserId) {
             return NextResponse.json({ error: 'Invalid userId' }, { status: 400 });
         }
@@ -192,7 +194,7 @@ export async function GET(request: NextRequest) {
         const userOnboarded = await isUserOnboarded(userId);
         const identity = await loadIdentity();
         const user = await loadUser(userId);
-        const history = await getConversationHistory(userId, 20);
+        const history = includeHistory ? await getConversationHistory(userId, 20) : { messages: [] };
 
         return NextResponse.json({
             isBootstrapped,

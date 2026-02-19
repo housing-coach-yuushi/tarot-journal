@@ -97,7 +97,6 @@ export default function Home() {
   const [userId, setUserId] = useState<string>('default');
   const [showSettings, setShowSettings] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
-  const [checkinLines, setCheckinLines] = useState<string[] | null>(null);
   const [showTapHint, setShowTapHint] = useState(true);
   const [showRadio, setShowRadio] = useState(false);
   const [radioNotification, setRadioNotification] = useState<string | null>(null);
@@ -111,7 +110,6 @@ export default function Home() {
   const lastSendTextRef = useRef<string>('');
   const noticeTimerRef = useRef<number | null>(null);
   const ttsEnabledRef = useRef<boolean>(ttsEnabled);
-  const hasHistoryRef = useRef<boolean>(false);
   const checkinTtsPlayedRef = useRef<boolean>(false);
   const checkinTtsHandledRef = useRef<boolean>(false);
   const checkinTtsAttemptingRef = useRef<boolean>(false);
@@ -125,6 +123,10 @@ export default function Home() {
   const heldTranscriptRef = useRef<string>('');
   // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
+  const MAX_CHAT_HISTORY_MESSAGES = 24;
+  const MAX_SUMMARY_MESSAGES = 40;
+  const MAX_SHARE_MESSAGES = 40;
+  const MAX_MESSAGE_CHARS = 1200;
 
   // BGM playback control
   useEffect(() => {
@@ -171,6 +173,58 @@ export default function Home() {
     }
     return resolved;
   }, [userId]);
+
+  const fetchWithTimeout = useCallback(async (url: string, options?: RequestInit, timeoutMs = 12000) => {
+    const controller = new AbortController();
+    const id = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      return response;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`request timeout (${timeoutMs}ms): ${url}`);
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(id);
+    }
+  }, []);
+
+  const truncateContent = useCallback((value: string, maxChars = MAX_MESSAGE_CHARS) => {
+    const trimmed = value.trim();
+    if (trimmed.length <= maxChars) return trimmed;
+    return `${trimmed.slice(0, maxChars)}...`;
+  }, [MAX_MESSAGE_CHARS]);
+
+  const toHistoryPayload = useCallback((source: Message[]) => {
+    return source.slice(-MAX_CHAT_HISTORY_MESSAGES).map(m => ({
+      role: m.role === 'tarot' ? 'user' : m.role,
+      content: truncateContent(
+        m.role === 'tarot' && m.card
+          ? `[カード: ${m.card.card.name} ${m.card.card.symbol} (${m.card.isReversed ? '逆位置' : '正位置'})]`
+          : m.content,
+      ),
+    }));
+  }, [MAX_CHAT_HISTORY_MESSAGES, truncateContent]);
+
+  const toSummaryPayload = useCallback((source: Message[]) => {
+    return source.slice(-MAX_SUMMARY_MESSAGES).map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: truncateContent(
+        m.role === 'tarot' && m.card
+          ? `[カード: ${m.card.card.name} ${m.card.card.symbol} (${m.card.isReversed ? '逆位置' : '正位置'})] ${m.content}`
+          : m.content,
+      ),
+    }));
+  }, [MAX_SUMMARY_MESSAGES, truncateContent]);
+
+  const toSharePayload = useCallback((source: Message[]) => {
+    return source.slice(-MAX_SHARE_MESSAGES).map(m => ({
+      role: m.role,
+      content: truncateContent(m.content, 800),
+      card: m.card,
+    }));
+  }, [MAX_SHARE_MESSAGES, truncateContent]);
 
   // Initialize userId on client side
   useEffect(() => {
@@ -401,7 +455,7 @@ export default function Home() {
       }
     }
     return true;
-  }, [stopDeepgramTTS, unlockAudio]);
+  }, [stopDeepgramTTS, unlockAudio, log]);
 
   // Play TTS for a message (server-side Deepgram REST)
   const playTTS = useCallback(async (text: string): Promise<boolean> => {
@@ -487,102 +541,91 @@ export default function Home() {
     setIsGeneratingAudio(false);
   }, [isGeneratingAudio, isSpeaking, log, stopDeepgramTTS]);
 
+  const buildCheckinMessages = useCallback((lines: string[]): Message[] => {
+    const checkinMessage: Message = {
+      id: `checkin-${Date.now()}`,
+      role: 'assistant',
+      content: lines.join('\n'),
+      timestamp: new Date(),
+    };
+    const guideMessage: Message = {
+      id: `guide-${Date.now()}`,
+      role: 'assistant',
+      content: 'マイクを押して、今の気持ちを話してみてください。',
+      timestamp: new Date(),
+    };
+    return [checkinMessage, guideMessage];
+  }, []);
 
-  // Ref to hold pre-fetched initial data for tap-to-start
-  const initDataRef = useRef<{ message: string; audioUrl: string | null; status: BootstrapState } | null>(null);
-
-  // Background: fetch chat + TTS while showing "tap to start"
+  // Background: always show check-in first. Never restore previous history on app reopen.
   const prepareInBackground = useCallback(async () => {
-      try {
-        log('バックグラウンド準備開始...');
-        setIsPreparing(true);
-        setInitError(null);
-        checkinTtsPlayedRef.current = false;
-        checkinTtsHandledRef.current = false;
-        checkinTtsAttemptingRef.current = false;
-        checkinTtsAttemptedMessageIdRef.current = null;
-        if (checkinTtsRetryTimerRef.current) {
-          window.clearTimeout(checkinTtsRetryTimerRef.current);
-          checkinTtsRetryTimerRef.current = null;
-        }
-        hasHistoryRef.current = false;
-
-        const fetchWithTimeout = async (url: string, options?: RequestInit, timeout = 60000) => {
-          const controller = new AbortController();
-          const id = setTimeout(() => controller.abort(), timeout);
-          try {
-            const response = await fetch(url, { ...options, signal: controller.signal });
-            clearTimeout(id);
-            return response;
-          } catch (err: unknown) {
-            clearTimeout(id);
-            if (err instanceof Error && err.name === 'AbortError') {
-              throw new Error('サーバー応答タイムアウト (60秒)');
-            }
-            throw err;
-          }
-        };
-
-        const currentUserId = getUserId();
-        setUserId(currentUserId);
-
-        // Fetch status (history) first
-        const statusRes = await fetchWithTimeout(`/api/chat?userId=${currentUserId}`);
-        const status = await statusRes.json();
-        setBootstrap(status);
-
-        // Always show checkin first (even with history)
-        let lines: string[] | null = null;
-        try {
-          const res = await fetchWithTimeout(`/api/checkin?userId=${currentUserId}`);
-          if (res.ok) {
-            const data = await res.json();
-            lines = data.lines;
-            setCheckinLines(data.lines);
-          }
-        } catch {
-          // ignore
-        }
-
-        // If history exists, restore it after checkin
-        if (status?.history && status.history.length > 0) {
-          hasHistoryRef.current = true;
-          initDataRef.current = { message: '', audioUrl: null, status };
-          log(`履歴あり: ${status.history.length}件`);
-          // Don't return - show checkin first
-        }
-
-        // Show checkin message
-        const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
-        const checkin = lines && lines.length > 0 ? lines : fallbackLines;
-        const checkinMessage: Message = {
-          id: 'checkin-' + Date.now(),
-          role: 'assistant',
-          content: checkin.join('\n'),
-          timestamp: new Date(),
-        };
-        const guideMessage: Message = {
-          id: 'guide-' + Date.now(),
-          role: 'assistant',
-          content: 'マイクを押して、今の気持ちを話してみてください。',
-          timestamp: new Date(),
-        };
-        setMessages([checkinMessage, guideMessage]);
-        log('チェックインを表示');
-      } catch (error) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        log(`初期化エラー詳細: ${errMsg}`);
-        setInitError('通信に失敗しました。再試行してください。');
-      } finally {
-        setIsReady(true);
-        setIsPreparing(false);
-        setIsGeneratingAudio(false);
+    const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
+    try {
+      log('バックグラウンド準備開始...');
+      setIsPreparing(true);
+      setIsReady(false);
+      setInitError(null);
+      checkinTtsPlayedRef.current = false;
+      checkinTtsHandledRef.current = false;
+      checkinTtsAttemptingRef.current = false;
+      checkinTtsAttemptedMessageIdRef.current = null;
+      if (checkinTtsRetryTimerRef.current) {
+        window.clearTimeout(checkinTtsRetryTimerRef.current);
+        checkinTtsRetryTimerRef.current = null;
       }
-    }, [log]);
+
+      const currentUserId = resolveUserId();
+      setMessages(buildCheckinMessages(fallbackLines));
+      log('チェックイン(フォールバック)を即表示');
+
+      const [checkinResult, bootstrapResult] = await Promise.allSettled([
+        (async () => {
+          const res = await fetchWithTimeout(`/api/checkin?userId=${currentUserId}`, undefined, 10000);
+          if (!res.ok) return null;
+          const data = await res.json();
+          return Array.isArray(data?.lines) ? data.lines.filter((line: unknown) => typeof line === 'string') : null;
+        })(),
+        (async () => {
+          const res = await fetchWithTimeout(`/api/chat?userId=${currentUserId}&includeHistory=0`, undefined, 8000);
+          if (!res.ok) return null;
+          return res.json();
+        })(),
+      ]);
+
+      if (checkinResult.status === 'fulfilled' && checkinResult.value && checkinResult.value.length > 0) {
+        setMessages((prev) => {
+          if (prev.length > 2) return prev;
+          if (prev.some((m) => m.role === 'user' || m.role === 'tarot')) return prev;
+          return buildCheckinMessages(checkinResult.value);
+        });
+        log('チェックイン文面を更新');
+      } else if (checkinResult.status === 'rejected') {
+        log(`チェックイン取得失敗: ${checkinResult.reason instanceof Error ? checkinResult.reason.message : String(checkinResult.reason)}`);
+      }
+
+      if (bootstrapResult.status === 'fulfilled' && bootstrapResult.value) {
+        setBootstrap((prev) => ({
+          ...prev,
+          isBootstrapped: bootstrapResult.value.isBootstrapped ?? prev.isBootstrapped,
+          identity: bootstrapResult.value.identity ?? prev.identity,
+          user: bootstrapResult.value.user ?? prev.user,
+        }));
+      } else if (bootstrapResult.status === 'rejected') {
+        log(`ブートストラップ状態取得失敗: ${bootstrapResult.reason instanceof Error ? bootstrapResult.reason.message : String(bootstrapResult.reason)}`);
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log(`初期化エラー詳細: ${errMsg}`);
+      setInitError('通信に失敗しました。再試行してください。');
+    } finally {
+      setIsReady(true);
+      setIsPreparing(false);
+      setIsGeneratingAudio(false);
+    }
+  }, [buildCheckinMessages, fetchWithTimeout, log, resolveUserId]);
 
   useEffect(() => {
     prepareInBackground();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prepareInBackground]);
 
   const handleTapToStart = useCallback(async () => {
@@ -600,55 +643,8 @@ export default function Home() {
     }
   }, [unlockAudio, pushNotice]);
 
-  // When background prep finishes, apply data
-  useEffect(() => {
-    if (isReady && !isLoading && initDataRef.current) {
-      const data = initDataRef.current;
-      initDataRef.current = null; // consume once
-
-      setBootstrap(data.status);
-
-      // Restore history from Cloud (Redis)
-      if (data.status.history && data.status.history.length > 0) {
-        log(`履歴を復元中: ${data.status.history.length}件`);
-        const restoredMessages: Message[] = data.status.history.map((m: any, i: number) => ({
-          id: `restored-${i}-${Date.now()}`,
-          role: m.role,
-          content: m.content,
-          timestamp: new Date(m.timestamp || Date.now()),
-        }));
-        setMessages(restoredMessages);
-      } else {
-        const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
-        const lines = checkinLines && checkinLines.length > 0 ? checkinLines : fallbackLines;
-        const checkinMessage: Message = {
-          id: 'checkin-' + Date.now(),
-          role: 'assistant',
-          content: lines.join('\n'),
-          timestamp: new Date(),
-        };
-        const guideMessage: Message = {
-          id: 'guide-' + Date.now(),
-          role: 'assistant',
-          content: 'マイクを押して、今の気持ちを話してみてください。',
-          timestamp: new Date(),
-        };
-        setMessages([checkinMessage, guideMessage]);
-      }
-    } else if (isReady && !isLoading && !initDataRef.current && initError) {
-      log('初期メッセージが取得できなかったため、フォールバックメッセージを表示します');
-      setMessages([{
-        id: 'error-fallback-' + Date.now(),
-        role: 'assistant' as const,
-        content: '...。......あ、れ......。すまない、今は少し意識が遠のいているみたいだ（通信エラー）。少し時間を置いてからまた話しかけてくれるかい？',
-        timestamp: new Date(),
-      }]);
-    }
-  }, [isReady, isLoading, log, checkinLines, initError]);
-
   useEffect(() => {
     if (isLoading || !isReady) return;
-    if (hasHistoryRef.current) return;
     if (messages.length > 2) return;
     if (messages.some(message => message.role === 'user' || message.role === 'tarot')) return;
     if (typeof window !== 'undefined' && window.sessionStorage.getItem(CHECKIN_TTS_SESSION_KEY) === '1') {
@@ -759,12 +755,7 @@ export default function Home() {
         body: JSON.stringify({
           message: text,
           userId: requestUserId,
-          history: messages.map(m => ({
-            role: m.role === 'tarot' ? 'user' : m.role,  // Convert tarot to user for API
-            content: m.role === 'tarot' && m.card
-              ? `[カード: ${m.card.card.name} ${m.card.card.symbol} (${m.card.isReversed ? '逆位置' : '正位置'})]`
-              : m.content,
-          })),
+          history: toHistoryPayload(messages),
         }),
       });
 
@@ -813,7 +804,7 @@ export default function Home() {
         abortControllerRef.current = null;
       }
     }
-  }, [messages, isSending, log, stopTTS, playTTS, unlockAudio, resolveUserId]);
+  }, [messages, log, stopTTS, playTTS, unlockAudio, resolveUserId, toHistoryPayload]);
 
   // Save to Obsidian
   const handleSave = useCallback(async () => {
@@ -824,34 +815,50 @@ export default function Home() {
 
     try {
       const requestUserId = resolveUserId();
-      
-      // Step 1: Get summary from AI
-      const summarizeResponse = await fetch('/api/journal/summarize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: messages.map(m => ({ role: m.role, content: m.content })),
-          userId: requestUserId,
-        }),
-      });
-
-      if (!summarizeResponse.ok) {
-        log('要約失敗');
-        pushNotice('error', '要約に失敗しました。少し時間を置いて再度お試しください。');
-        return;
-      }
-
-      const summaryData = await summarizeResponse.json();
-      log('要約完了: ' + summaryData.title);
+      const summaryMessages = toSummaryPayload(messages);
 
       // Step 2: Download as markdown file
       const dateStr = new Date().toISOString().split('T')[0];
       const timeStr = new Date().toTimeString().split(' ')[0].replace(/:/g, '-');
       const userName = bootstrap.user?.callName || bootstrap.user?.name || 'わたし';
       const aiName = bootstrap.identity?.name || 'ジョージ';
+      let title = `${dateStr}のジャーナル`;
+      let summary = truncateContent(
+        summaryMessages
+          .slice(-6)
+          .map((m) => `${m.role === 'assistant' ? aiName : userName}: ${m.content}`)
+          .join(' / '),
+        260,
+      );
+      let usedFallbackSummary = true;
+
+      try {
+        const summarizeResponse = await fetchWithTimeout('/api/journal/summarize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: summaryMessages,
+            userId: requestUserId,
+          }),
+        }, 20000);
+
+        if (summarizeResponse.ok) {
+          const summaryData = await summarizeResponse.json();
+          title = typeof summaryData?.title === 'string' && summaryData.title.trim() ? summaryData.title.trim() : title;
+          summary = typeof summaryData?.summary === 'string' && summaryData.summary.trim() ? summaryData.summary.trim() : summary;
+          usedFallbackSummary = false;
+          log('要約完了: ' + title);
+        } else {
+          log(`要約失敗: ${summarizeResponse.status}`);
+        }
+      } catch (error) {
+        log('要約フォールバック: ' + (error as Error).message);
+      }
+
+      const exportMessages = messages.slice(-Math.max(MAX_SUMMARY_MESSAGES, 60));
 
       const markdownContent = `---
-title: "${summaryData.title}"
+title: "${title}"
 date: ${dateStr}
 time: ${timeStr}
 tags:
@@ -859,17 +866,23 @@ tags:
   - journal
 ---
 
-# ${summaryData.title}
+# ${title}
 
 **日付:** ${dateStr} ${timeStr}
 
 ## 要約
 
-${summaryData.summary}
+${summary}
 
 ## 対話履歴
 
-${messages.map(m => `### ${m.role === 'user' ? userName : aiName}\n\n${m.content}`).join('\n\n---\n\n')}
+${exportMessages.map(m => {
+  const speaker = m.role === 'assistant' ? aiName : m.role === 'tarot' ? `${userName}(カード)` : userName;
+  const body = m.role === 'tarot' && m.card
+    ? `[カード: ${m.card.card.name} ${m.card.card.symbol} (${m.card.isReversed ? '逆位置' : '正位置'})]\n${m.content || ''}`
+    : m.content;
+  return `### ${speaker}\n\n${body}`;
+}).join('\n\n---\n\n')}
 `;
 
       const blob = new Blob([markdownContent], { type: 'text/markdown' });
@@ -887,14 +900,29 @@ ${messages.map(m => `### ${m.role === 'user' ? userName : aiName}\n\n${m.content
       }, 1000);
 
       log('ダウンロード完了');
-      pushNotice('success', 'ジャーナルをダウンロードしました。');
+      if (usedFallbackSummary) {
+        pushNotice('info', '簡易要約でジャーナルをダウンロードしました。');
+      } else {
+        pushNotice('success', 'ジャーナルをダウンロードしました。');
+      }
     } catch (error) {
       log('保存エラー: ' + (error as Error).message);
       pushNotice('error', '保存に失敗しました。通信状況をご確認ください。');
     } finally {
       setIsSummarizing(false);
     }
-  }, [messages, isSummarizing, log, bootstrap, pushNotice, resolveUserId]);
+  }, [
+    messages,
+    isSummarizing,
+    log,
+    bootstrap,
+    pushNotice,
+    resolveUserId,
+    toSummaryPayload,
+    truncateContent,
+    fetchWithTimeout,
+    MAX_SUMMARY_MESSAGES,
+  ]);
 
   // Handle actual tarot draw after shuffle
   const processTarotDraw = useCallback(() => {
@@ -979,49 +1007,62 @@ ${messages.map(m => `### ${m.role === 'user' ? userName : aiName}\n\n${m.content
     pushNotice('info', '共有テキストを準備中...');
 
     try {
-      // Step 1: Start the share process immediately if titles/text are ready
-      // or at least call share with meaningful placeholders to satisfy the user gesture.
-      // However, the best way in Safari is to have the text READY.
-      // Let's try to fetch first, but with a timeout or fallback.
-
-      const response = await fetch('/api/journal/format-share', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: messages.map(m => ({
-            role: m.role,
-            content: m.content,
-            card: m.card,
-          })),
-        }),
-      });
-
-      let shareTitle = '今日のジャーナル';
-      let shareText = '';
-
-      if (response.ok) {
-        const data = await response.json();
-        shareTitle = data.title || shareTitle;
-        shareText = data.text || '';
-      } else {
-        shareText = messages.map(m => {
-          const role = m.role === 'assistant' ? 'ジョージ' : (m.role === 'user' ? 'わたし' : '🎴');
-          return `${role}: ${m.content}`;
-        }).join('\n\n');
-      }
+      const requestUserId = resolveUserId();
+      const userName = bootstrap.user?.callName || bootstrap.user?.name || 'わたし';
+      const aiName = bootstrap.identity?.name || 'ジョージ';
+      const compactMessages = toSharePayload(messages);
+      const fallbackTitle = '今日のジャーナル';
+      const fallbackText = compactMessages.map((m) => {
+        if (m.role === 'assistant') return `${aiName}: ${m.content}`;
+        if (m.role === 'tarot' && m.card) {
+          return `${userName}(カード): [${m.card.card.name} ${m.card.card.symbol}] ${m.content}`;
+        }
+        return `${userName}: ${m.content}`;
+      }).join('\n\n');
 
       if (navigator.share) {
         try {
-          await navigator.share({ title: shareTitle, text: shareText });
+          // Keep share immediate to preserve user activation (especially on iOS/PWA).
+          await navigator.share({ title: fallbackTitle, text: fallbackText });
           pushNotice('success', '共有しました。');
-        } catch (error) {
+        } catch (error: unknown) {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            pushNotice('info', '共有をキャンセルしました。');
+            return;
+          }
           console.error('navigator.share failed:', error);
-          await navigator.clipboard.writeText(shareText);
-          pushNotice('info', '共有メニューの起動に失敗したため、内容をコピーしました。');
+          try {
+            await navigator.clipboard.writeText(fallbackText);
+            pushNotice('info', '共有メニューの起動に失敗したため、内容をコピーしました。');
+          } catch {
+            pushNotice('error', '共有とコピーの両方に失敗しました。');
+          }
         }
-      } else {
+        return;
+      }
+
+      const response = await fetchWithTimeout('/api/journal/format-share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: requestUserId,
+          messages: compactMessages,
+        }),
+      }, 12000);
+
+      let shareText = fallbackText;
+      if (response.ok) {
+        const data = await response.json();
+        if (typeof data?.text === 'string' && data.text.trim()) {
+          shareText = data.text.trim();
+        }
+      }
+
+      try {
         await navigator.clipboard.writeText(shareText);
         pushNotice('success', 'クリップボードにコピーしました。');
+      } catch {
+        pushNotice('error', 'クリップボードへのコピーに失敗しました。');
       }
     } catch (error) {
       console.error('handleShare error:', error);
@@ -1030,7 +1071,7 @@ ${messages.map(m => `### ${m.role === 'user' ? userName : aiName}\n\n${m.content
     } finally {
       setIsSharing(false);
     }
-  }, [messages, log, pushNotice]);
+  }, [messages, log, pushNotice, resolveUserId, bootstrap, toSharePayload, fetchWithTimeout]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
