@@ -76,6 +76,9 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
 
   const [isListening, setIsListening] = useState(false);
   const [currentTranscript, setCurrentTranscript] = useState('');
+  const [finalizedTranscript, setFinalizedTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const [inputLevel, setInputLevel] = useState(0);
   const [debugStatus, setDebugStatus] = useState('init');
   const [isSupported] = useState(() => !!(
     typeof window !== 'undefined' &&
@@ -98,6 +101,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const shouldSendOnStopRef = useRef(false);
   const stoppingRef = useRef(false);
   const sessionEndedRef = useRef(false);
+  const inputLevelRef = useRef(0);
 
   const onFinalResultRef = useRef(onFinalResult);
   const onEndRef = useRef(onEnd);
@@ -178,10 +182,14 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const resetSessionState = useCallback(() => {
     finalTranscriptRef.current = '';
     interimTranscriptRef.current = '';
+    inputLevelRef.current = 0;
     shouldSendOnStopRef.current = false;
     stoppingRef.current = false;
     sessionEndedRef.current = false;
     setCurrentTranscript('');
+    setFinalizedTranscript('');
+    setInterimTranscript('');
+    setInputLevel(0);
   }, []);
 
   const emitFinalIfNeeded = useCallback((reason: 'send' | 'cancel' | 'error') => {
@@ -215,6 +223,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     cleanupAudio();
     cleanupSocket();
     setIsListening(false);
+    inputLevelRef.current = 0;
+    setInputLevel(0);
     emitFinalIfNeeded(reason);
   }, [cleanupAudio, cleanupSocket, clearTimers, emitFinalIfNeeded]);
 
@@ -252,8 +262,11 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
           finalTranscriptRef.current = concatTranscript(finalTranscriptRef.current, transcript);
         }
         interimTranscriptRef.current = '';
+        setFinalizedTranscript(finalTranscriptRef.current);
+        setInterimTranscript('');
       } else {
         interimTranscriptRef.current = transcript;
+        setInterimTranscript(transcript);
       }
 
       const merged = concatTranscript(finalTranscriptRef.current, interimTranscriptRef.current);
@@ -322,6 +335,16 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       if (!socket || socket.readyState !== WebSocket.OPEN || stoppingRef.current) return;
       const input = evt.inputBuffer.getChannelData(0);
       if (!input || input.length === 0) return;
+      let sumSquares = 0;
+      for (let i = 0; i < input.length; i += 1) {
+        const s = input[i] || 0;
+        sumSquares += s * s;
+      }
+      const rms = Math.sqrt(sumSquares / input.length);
+      const normalized = Math.min(1, rms * 12);
+      const smoothed = Math.max(normalized, inputLevelRef.current * 0.82);
+      inputLevelRef.current = smoothed;
+      setInputLevel(smoothed);
       const pcm16 = downsampleTo16k(input, audioContext.sampleRate);
       if (pcm16.byteLength > 0) {
         socket.send(pcm16.buffer);
@@ -492,6 +515,9 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   return {
     isListening,
     currentTranscript,
+    finalizedTranscript,
+    interimTranscript,
+    inputLevel,
     isSupported,
     debugStatus,
     startListening,

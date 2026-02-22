@@ -305,7 +305,9 @@ export default function Home() {
   // Speech recognition hook - Deepgram Nova-3 streaming (real-time)
   const {
     isListening,
-    currentTranscript,
+    finalizedTranscript,
+    interimTranscript,
+    inputLevel,
     isSupported: sttSupported,
     debugStatus,
     startListening,
@@ -1726,15 +1728,48 @@ ${exportMessages.map(m => {
       {/* Listening indicator with current transcript */}
       {isListening && (
         <div className="absolute bottom-40 left-0 right-0 flex justify-center z-30 px-4">
+          {(() => {
+            const held = heldTranscriptRef.current.trim();
+            const finalized = finalizedTranscript.trim();
+            const interim = interimTranscript.trim();
+            const finalText = [held, finalized].filter(Boolean).join(' ').trim();
+            const bars = 14;
+            return (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white/10 backdrop-blur-md rounded-2xl px-6 py-3 max-w-md"
+            className="bg-white/10 backdrop-blur-md rounded-2xl px-5 py-4 max-w-md w-full"
           >
-            <p className="text-white/80 text-sm text-center">
-              {(heldTranscriptRef.current ? `${heldTranscriptRef.current} ${currentTranscript}`.trim() : currentTranscript) || '押したまま話してください...'}
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span className="text-[11px] text-white/55 tracking-wide">聞き取り中</span>
+              <div className="flex items-end gap-0.5 h-4" aria-hidden>
+                {Array.from({ length: bars }).map((_, i) => {
+                  const threshold = (i + 1) / bars;
+                  const active = inputLevel >= threshold;
+                  return (
+                    <span
+                      key={i}
+                      className={`w-1 rounded-full transition-all duration-100 ${active ? 'bg-emerald-300/90' : 'bg-white/15'}`}
+                      style={{ height: `${6 + (i % 5) * 2}px` }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+            <p className="text-sm text-center leading-relaxed min-h-[2.8rem]">
+              {finalText ? <span className="text-white/90">{finalText}</span> : null}
+              {finalText && interim ? <span className="text-white/50"> </span> : null}
+              {interim ? <span className="text-white/45 italic">{interim}</span> : null}
+              {!finalText && !interim ? (
+                <span className="text-white/55">押したまま話してください...</span>
+              ) : null}
             </p>
+            <div className="mt-2 text-[11px] text-center text-white/45">
+              {interim ? '薄い文字は変換途中です' : '話すとここに文字が出ます'}
+            </div>
           </motion.div>
+            );
+          })()}
         </div>
       )}
 
