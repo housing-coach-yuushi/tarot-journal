@@ -28,6 +28,7 @@ const DG_SAMPLE_RATE = 16000;
 const DG_CHANNELS = 1;
 const KEEPALIVE_INTERVAL_MS = 4000;
 const WS_OPEN_TIMEOUT_MS = 12000;
+const RELAY_WS_URL = (process.env.NEXT_PUBLIC_STT_RELAY_WS_URL || '').trim();
 
 function getAudioContextCtor(): typeof AudioContext | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -296,7 +297,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   }, []);
 
   const openStreamingSession = useCallback(async () => {
-    const token = await fetchDeepgramToken();
+    const token = RELAY_WS_URL ? null : await fetchDeepgramToken();
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
@@ -353,7 +354,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       }
     };
 
-    const baseUrl = new URL('wss://api.deepgram.com/v1/listen');
+    const baseUrl = new URL(RELAY_WS_URL || 'wss://api.deepgram.com/v1/listen');
     baseUrl.searchParams.set('model', 'nova-3');
     baseUrl.searchParams.set('language', deepgramLang);
     baseUrl.searchParams.set('encoding', 'linear16');
@@ -366,7 +367,77 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     baseUrl.searchParams.set('smart_format', 'true');
     baseUrl.searchParams.set('punctuate', 'true');
 
+    const connectRelay = () => new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(baseUrl.toString());
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
+
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        fn();
+      };
+
+      const openTimer = window.setTimeout(() => {
+        settle(() => reject(new Error('Deepgram relay websocket timeout')));
+      }, WS_OPEN_TIMEOUT_MS);
+
+      ws.onopen = () => {
+        window.clearTimeout(openTimer);
+        if (keepAliveTimerRef.current !== null) {
+          window.clearInterval(keepAliveTimerRef.current);
+        }
+        keepAliveTimerRef.current = window.setInterval(() => {
+          const socket = wsRef.current;
+          if (!socket || socket.readyState !== WebSocket.OPEN || stoppingRef.current) return;
+          try {
+            socket.send(JSON.stringify({ type: 'KeepAlive' }));
+          } catch {
+            // no-op
+          }
+        }, KEEPALIVE_INTERVAL_MS);
+        setDebugStatus('録音中');
+        settle(resolve);
+      };
+
+      ws.onerror = () => {
+        window.clearTimeout(openTimer);
+        settle(() => reject(new Error('Deepgram relay websocket error')));
+      };
+
+      ws.onmessage = handleWsMessage;
+
+      ws.onclose = (event: CloseEvent) => {
+        window.clearTimeout(openTimer);
+        if (!settled) {
+          const closeDetail = `code=${event.code} reason=${event.reason || 'n/a'} auth=relay`;
+          settle(() => reject(new Error(`Deepgram websocket closed before ready (${closeDetail})`)));
+          return;
+        }
+        if (stoppingRef.current) {
+          finishSession(shouldSendOnStopRef.current ? 'send' : 'cancel');
+        } else if (!sessionEndedRef.current) {
+          const closeDetail = `code=${event.code} reason=${event.reason || 'n/a'} auth=relay`;
+          console.warn('[Deepgram STT] unexpected relay websocket close:', closeDetail);
+          if (unexpectedCloseRetryCountRef.current < 1) {
+            unexpectedCloseRetryCountRef.current += 1;
+            setDebugStatus('再接続中...');
+            reconnectRunnerRef.current?.();
+            return;
+          }
+          setDebugStatus('接続エラー');
+          onErrorRef.current?.('ws', `relay socket closed unexpectedly (${closeDetail})`);
+          finishSession('error');
+        }
+      };
+    });
+
     const connectWithAuth = (authMode: 'query' | 'subprotocol') => new Promise<void>((resolve, reject) => {
+      if (!token) {
+        reject(new Error('Deepgram token missing for direct websocket connection'));
+        return;
+      }
       const url = new URL(baseUrl.toString());
       let ws: WebSocket;
       if (authMode === 'query') {
@@ -440,6 +511,16 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     });
 
     let lastConnectError: Error | null = null;
+    if (RELAY_WS_URL) {
+      try {
+        await connectRelay();
+        return;
+      } catch (error) {
+        lastConnectError = error instanceof Error ? error : new Error(String(error));
+        cleanupSocket();
+        throw lastConnectError;
+      }
+    }
     for (const authMode of ['query', 'subprotocol'] as const) {
       try {
         await connectWithAuth(authMode);
