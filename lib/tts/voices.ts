@@ -57,8 +57,8 @@ export const JAPANESE_VOICES: VoiceOption[] = [
     },
 ];
 
-// Default voice (Deepgram Aura-2 Japanese)
-export const DEFAULT_VOICE_ID = 'aura-2-izanami-ja';
+// Default conversation voice (Deepgram Aura-2 Japanese, fixed for stability)
+export const DEFAULT_VOICE_ID = 'aura-2-fujin-ja';
 
 /**
  * Get voice by ID

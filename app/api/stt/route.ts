@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
         else if (lowerFileName.endsWith('.wav')) contentType = 'audio/wav';
         else if (lowerFileName.endsWith('.ogg') || lowerFileName.endsWith('.oga')) contentType = 'audio/ogg';
         else if (lowerFileName.endsWith('.mp3')) contentType = 'audio/mpeg';
-        const model = process.env.DEEPGRAM_STT_MODEL || process.env.NEXT_PUBLIC_DEEPGRAM_STT_MODEL || 'nova-2';
+        const model = process.env.DEEPGRAM_STT_MODEL || process.env.NEXT_PUBLIC_DEEPGRAM_STT_MODEL || 'nova-3';
         const language = process.env.DEEPGRAM_STT_LANGUAGE || process.env.NEXT_PUBLIC_DEEPGRAM_STT_LANGUAGE || 'ja';
         const params = new URLSearchParams({
             model,

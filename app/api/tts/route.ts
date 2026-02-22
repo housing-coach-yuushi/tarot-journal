@@ -20,11 +20,15 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Get voice ID from request, AI identity, or use default
-        voiceId = requestVoiceId;
-        if (!voiceId) {
+        // Stability-first: pin conversation TTS to one Japanese male voice.
+        voiceId = DEFAULT_VOICE_ID;
+        if (requestVoiceId && requestVoiceId !== DEFAULT_VOICE_ID) {
+            console.log(`[API/TTS] Ignoring requested voiceId=${requestVoiceId}; using fixed voice=${DEFAULT_VOICE_ID}`);
+        } else if (!requestVoiceId) {
             const identity = await loadIdentity();
-            voiceId = identity?.voiceId || DEFAULT_VOICE_ID;
+            if (identity?.voiceId && identity.voiceId !== DEFAULT_VOICE_ID) {
+                console.log(`[API/TTS] Ignoring identity voiceId=${identity.voiceId}; using fixed voice=${DEFAULT_VOICE_ID}`);
+            }
         }
         // Resolve voice model for Deepgram
         const voiceOption = getVoiceById(voiceId);

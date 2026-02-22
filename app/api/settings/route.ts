@@ -12,7 +12,7 @@ import {
     updateUserProfile,
     resolveCanonicalUserId,
 } from '@/lib/db/redis';
-import { JAPANESE_VOICES, getVoiceById } from '@/lib/tts/voices';
+import { JAPANESE_VOICES, DEFAULT_VOICE_ID, getVoiceById } from '@/lib/tts/voices';
 
 // GET: Retrieve current settings
 export async function GET(request: NextRequest) {
@@ -29,11 +29,12 @@ export async function GET(request: NextRequest) {
     try {
         const identity = await getAIIdentity();
         const user = userId ? await getUserProfile(userId) : null;
+        const fixedVoice = getVoiceById(DEFAULT_VOICE_ID);
 
         return NextResponse.json({
             identity: identity ? {
                 name: identity.name,
-                voiceId: identity.voiceId,
+                voiceId: DEFAULT_VOICE_ID,
                 emoji: identity.emoji,
                 showDebug: identity.showDebug,
                 bgmEnabled: identity.bgmEnabled,
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
             user: user ? {
                 displayName: user.displayName,
             } : null,
-            availableVoices: JAPANESE_VOICES.map(v => ({
+            availableVoices: (fixedVoice ? [fixedVoice] : JAPANESE_VOICES).map(v => ({
                 id: v.id,
                 name: v.name,
                 label: v.label,
@@ -75,19 +76,11 @@ export async function POST(request: NextRequest) {
 
         // Update AI identity
         if (aiName !== undefined || voiceId !== undefined || showDebug !== undefined || bgmEnabled !== undefined) {
-            const aiUpdates: Record<string, any> = {};
+            const aiUpdates: Record<string, unknown> = {};
             if (aiName) aiUpdates.name = aiName;
-            if (voiceId) {
-                // Validate voice ID
-                const voice = getVoiceById(voiceId);
-                if (voice) {
-                    aiUpdates.voiceId = voiceId;
-                } else {
-                    return NextResponse.json(
-                        { error: '無効な声IDです' },
-                        { status: 400 }
-                    );
-                }
+            if (voiceId !== undefined) {
+                // Stability-first: keep conversation voice fixed regardless of UI input.
+                aiUpdates.voiceId = DEFAULT_VOICE_ID;
             }
             if (showDebug !== undefined) aiUpdates.showDebug = showDebug;
             if (bgmEnabled !== undefined) aiUpdates.bgmEnabled = bgmEnabled;

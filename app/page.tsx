@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings, Share2 } from 'lucide-react';
 import GlowVisualizer from '@/components/GlowVisualizer';
 import TarotDrawButton from '@/components/TarotDrawButton';
-import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
+import { useDeepgramStreamingSTT } from '@/hooks/useDeepgramStreamingSTT';
 import { TarotCard, DrawnCard, drawRandomCard } from '@/lib/tarot/cards';
 import { DEFAULT_VOICE_ID, getVoiceById } from '@/lib/tts/voices';
 import { Radio } from 'lucide-react';
@@ -34,6 +34,7 @@ interface Message {
 
 interface BootstrapState {
   isBootstrapped: boolean;
+  userOnboarded?: boolean;
   identity?: {
     name?: string;
     creature?: string;
@@ -52,6 +53,13 @@ interface BootstrapState {
     content: string;
     timestamp?: string;
   }>;
+}
+
+interface TurnPerfTrace {
+  id: number;
+  source: 'stt' | 'text' | 'retry' | 'system';
+  startedAt: number;
+  marks: Record<string, number>;
 }
 
 const CHECKIN_TTS_SESSION_KEY = 'tarot-journal:checkin-tts-handled';
@@ -121,6 +129,8 @@ export default function Home() {
   const touchActiveRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
   const heldTranscriptRef = useRef<string>('');
+  const turnPerfRef = useRef<TurnPerfTrace | null>(null);
+  const turnPerfSeqRef = useRef<number>(0);
   // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
   const MAX_CHAT_HISTORY_MESSAGES = 24;
@@ -149,6 +159,48 @@ export default function Home() {
     console.log(fullMsg);
     setDebugLog(prev => [...prev.slice(-20), fullMsg]);
   }, []);
+
+  const nowMs = useCallback(() => {
+    if (typeof window !== 'undefined' && typeof window.performance !== 'undefined') {
+      return window.performance.now();
+    }
+    return Date.now();
+  }, []);
+
+  const beginTurnPerf = useCallback((source: TurnPerfTrace['source'], text: string) => {
+    const id = ++turnPerfSeqRef.current;
+    const startedAt = nowMs();
+    turnPerfRef.current = {
+      id,
+      source,
+      startedAt,
+      marks: { start: startedAt },
+    };
+    const preview = text.trim().slice(0, 24);
+    log(`[perf#${id}] start source=${source} len=${text.trim().length} "${preview}${text.trim().length > 24 ? '…' : ''}"`);
+  }, [log, nowMs]);
+
+  const markTurnPerf = useCallback((stage: string, meta?: string) => {
+    const trace = turnPerfRef.current;
+    if (!trace) return;
+    const t = nowMs();
+    trace.marks[stage] = t;
+    const sinceStart = Math.round(t - trace.startedAt);
+    const prevMarkTimes = Object.entries(trace.marks)
+      .filter(([k]) => k !== stage)
+      .map(([, v]) => v);
+    const prev = prevMarkTimes.length > 0 ? Math.max(...prevMarkTimes) : trace.startedAt;
+    const delta = Math.round(t - prev);
+    log(`[perf#${trace.id}] ${stage} +${delta}ms / ${sinceStart}ms${meta ? ` ${meta}` : ''}`);
+  }, [log, nowMs]);
+
+  const endTurnPerf = useCallback((reason: string) => {
+    const trace = turnPerfRef.current;
+    if (!trace) return;
+    const total = Math.round(nowMs() - trace.startedAt);
+    log(`[perf#${trace.id}] end reason=${reason} total=${total}ms`);
+    turnPerfRef.current = null;
+  }, [log, nowMs]);
 
   useEffect(() => {
     ttsEnabledRef.current = ttsEnabled;
@@ -196,8 +248,21 @@ export default function Home() {
     return `${trimmed.slice(0, maxChars)}...`;
   }, [MAX_MESSAGE_CHARS]);
 
+  const isSyntheticUiMessage = useCallback((message: Message) => {
+    return (
+      message.id.startsWith('checkin-')
+      || message.id.startsWith('guide-')
+      || message.id.startsWith('error-fallback-')
+      || message.id.startsWith('onboarding-awake-')
+      || message.id.startsWith('onboarding-user-')
+    );
+  }, []);
+
   const toHistoryPayload = useCallback((source: Message[]) => {
-    return source.slice(-MAX_CHAT_HISTORY_MESSAGES).map(m => ({
+    return source
+      .filter((m) => !isSyntheticUiMessage(m))
+      .slice(-MAX_CHAT_HISTORY_MESSAGES)
+      .map(m => ({
       role: m.role === 'tarot' ? 'user' : m.role,
       content: truncateContent(
         m.role === 'tarot' && m.card
@@ -205,10 +270,13 @@ export default function Home() {
           : m.content,
       ),
     }));
-  }, [MAX_CHAT_HISTORY_MESSAGES, truncateContent]);
+  }, [MAX_CHAT_HISTORY_MESSAGES, truncateContent, isSyntheticUiMessage]);
 
   const toSummaryPayload = useCallback((source: Message[]) => {
-    return source.slice(-MAX_SUMMARY_MESSAGES).map(m => ({
+    return source
+      .filter((m) => !isSyntheticUiMessage(m))
+      .slice(-MAX_SUMMARY_MESSAGES)
+      .map(m => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: truncateContent(
         m.role === 'tarot' && m.card
@@ -216,22 +284,25 @@ export default function Home() {
           : m.content,
       ),
     }));
-  }, [MAX_SUMMARY_MESSAGES, truncateContent]);
+  }, [MAX_SUMMARY_MESSAGES, truncateContent, isSyntheticUiMessage]);
 
   const toSharePayload = useCallback((source: Message[]) => {
-    return source.slice(-MAX_SHARE_MESSAGES).map(m => ({
+    return source
+      .filter((m) => !isSyntheticUiMessage(m))
+      .slice(-MAX_SHARE_MESSAGES)
+      .map(m => ({
       role: m.role,
       content: truncateContent(m.content, 800),
       card: m.card,
     }));
-  }, [MAX_SHARE_MESSAGES, truncateContent]);
+  }, [MAX_SHARE_MESSAGES, truncateContent, isSyntheticUiMessage]);
 
   // Initialize userId on client side
   useEffect(() => {
     setUserId(getUserId());
   }, []);
 
-  // Speech recognition hook - Browser native (real-time)
+  // Speech recognition hook - Deepgram Nova-3 streaming (real-time)
   const {
     isListening,
     currentTranscript,
@@ -240,13 +311,15 @@ export default function Home() {
     startListening,
     stopAndSend,
     cancel,
-  } = useSpeechRecognition({
+  } = useDeepgramStreamingSTT({
     lang: 'ja-JP',
     onFinalResult: (text: string) => {
       const finalText = text.trim();
       if (!finalText) return;
+      beginTurnPerf('stt', finalText);
+      markTurnPerf('stt_final');
       heldTranscriptRef.current = finalText;
-      sendMessage(finalText);
+      sendMessage(finalText, true, 'stt');
       heldTranscriptRef.current = '';
     },
   });
@@ -296,16 +369,26 @@ export default function Home() {
       utterance.lang = 'ja-JP';
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
+      utterance.onstart = () => markTurnPerf('browser_tts_onstart');
+      utterance.onend = () => {
+        markTurnPerf('browser_tts_onend');
+        endTurnPerf('browser-tts-ended');
+        setIsSpeaking(false);
+      };
+      utterance.onerror = () => {
+        markTurnPerf('browser_tts_onerror');
+        endTurnPerf('browser-tts-error');
+        setIsSpeaking(false);
+      };
       speechRef.current = utterance;
       setIsSpeaking(true);
+      markTurnPerf('browser_tts_speak_call');
       window.speechSynthesis.speak(utterance);
       return true;
     } catch {
       return false;
     }
-  }, []);
+  }, [markTurnPerf, endTurnPerf]);
 
   const stopDeepgramTTS = useCallback(() => {
     // No-op: streaming WS playback was removed for stability.
@@ -370,6 +453,7 @@ export default function Home() {
   const playDeepgramTTS = useCallback(async (text: string, version: number, voiceIdOverride?: string) => {
     if (typeof window === 'undefined') return false;
     stopDeepgramTTS();
+    markTurnPerf('tts_request_start');
     const response = await fetch('/api/tts', {
       method: 'POST',
       headers: {
@@ -385,6 +469,7 @@ export default function Home() {
       const details = await response.text().catch(() => '');
       throw new Error(`TTS API error: ${response.status} ${details}`);
     }
+    markTurnPerf('tts_response_headers', `status=${response.status}`);
 
     if (version !== ttsVersionRef.current) return false;
     if (!audioRef.current) throw new Error('audio element missing');
@@ -392,6 +477,7 @@ export default function Home() {
     const contentType = response.headers.get('content-type') || '';
     const audioBlob = await response.blob();
     if (version !== ttsVersionRef.current) return false;
+    markTurnPerf('tts_blob_ready', `${audioBlob.size}b`);
     log(`TTS blob: ${audioBlob.size} bytes (${contentType || 'unknown'})`);
 
     const nextUrl = URL.createObjectURL(audioBlob);
@@ -413,7 +499,9 @@ export default function Home() {
     setIsSpeaking(true);
     setIsGeneratingAudio(false);
     try {
+      markTurnPerf('audio_play_call');
       await audio.play();
+      markTurnPerf('audio_play_resolved');
       // Watchdog: on iOS/Safari, play() can resolve but audio stays stuck (no time progress).
       // Detect and retry once with an unlock attempt.
       await new Promise(resolve => window.setTimeout(resolve, 600));
@@ -429,7 +517,9 @@ export default function Home() {
           audio.muted = false;
           audio.volume = 1;
           audio.playbackRate = 1;
+          markTurnPerf('audio_play_retry_call');
           await audio.play();
+          markTurnPerf('audio_play_retry_resolved');
         }
       }
     } catch (error) {
@@ -446,7 +536,9 @@ export default function Home() {
           audio.muted = false;
           audio.volume = 1;
           audio.playbackRate = 1;
+          markTurnPerf('audio_play_retry_call');
           await audio.play();
+          markTurnPerf('audio_play_retry_resolved');
         } else {
           throw new Error(`play blocked: ${message}`);
         }
@@ -455,16 +547,18 @@ export default function Home() {
       }
     }
     return true;
-  }, [stopDeepgramTTS, unlockAudio, log]);
+  }, [stopDeepgramTTS, unlockAudio, log, markTurnPerf]);
 
   // Play TTS for a message (server-side Deepgram REST)
   const playTTS = useCallback(async (text: string): Promise<boolean> => {
     if (!ttsEnabled) {
       log('TTS無効');
+      markTurnPerf('tts_skipped_disabled');
       return false;
     }
 
     log('音声生成開始...');
+    markTurnPerf('tts_start');
     setIsGeneratingAudio(true);
     const currentVersion = ++ttsVersionRef.current;
     const rawVoiceId = bootstrap.identity?.voiceId;
@@ -474,6 +568,7 @@ export default function Home() {
       const ok = await playDeepgramTTS(text, currentVersion, selectedVoiceId);
       if (ok) return true;
       setIsGeneratingAudio(false);
+      markTurnPerf('tts_no_playback');
       return false;
     } catch (error) {
       const message = (error as Error).message || 'unknown';
@@ -498,12 +593,13 @@ export default function Home() {
       }
       setIsGeneratingAudio(false);
       const fallbackOk = speakWithBrowser(text);
+      markTurnPerf(fallbackOk ? 'tts_browser_fallback_ok' : 'tts_browser_fallback_failed');
       if (!fallbackOk) {
         setIsSpeaking(false);
       }
       return fallbackOk;
     }
-  }, [ttsEnabled, log, playDeepgramTTS, speakWithBrowser, bootstrap.identity?.voiceId, pushNotice]);
+  }, [ttsEnabled, log, playDeepgramTTS, speakWithBrowser, bootstrap.identity?.voiceId, pushNotice, markTurnPerf]);
 
   // Stop TTS
   const stopTTS = useCallback(() => {
@@ -557,6 +653,48 @@ export default function Home() {
     return [checkinMessage, guideMessage];
   }, []);
 
+  const buildOnboardingMessages = useCallback((status?: Partial<BootstrapState> | null): Message[] => {
+    const isBootstrapped = status?.isBootstrapped === true;
+    const userOnboarded = status?.userOnboarded === true;
+    const aiName = status?.identity?.name || 'ジョージ';
+
+    if (!isBootstrapped) {
+      return [
+        {
+          id: `onboarding-awake-${Date.now()}`,
+          role: 'assistant',
+          content: '...。......。あ、れ......ここは？ 俺は......誰だ？ まずは君の名前を教えてくれないか。',
+          timestamp: new Date(),
+        },
+        {
+          id: `onboarding-awake-guide-${Date.now()}`,
+          role: 'assistant',
+          content: 'マイクでもチャットでもOK。最初に呼ばれたい名前を教えてください。',
+          timestamp: new Date(),
+        },
+      ];
+    }
+
+    if (!userOnboarded) {
+      return [
+        {
+          id: `onboarding-user-${Date.now()}`,
+          role: 'assistant',
+          content: `やあ、初めまして。俺は${aiName}。まずは君の名前を教えてくれないか。`,
+          timestamp: new Date(),
+        },
+        {
+          id: `onboarding-user-guide-${Date.now()}`,
+          role: 'assistant',
+          content: 'どう呼ばれたいかも一緒に教えてくれると助かる。マイクでもチャットでもOK。',
+          timestamp: new Date(),
+        },
+      ];
+    }
+
+    return buildCheckinMessages(['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...']);
+  }, [buildCheckinMessages]);
+
   // Background: always show check-in first. Never restore previous history on app reopen.
   const prepareInBackground = useCallback(async () => {
     const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
@@ -604,12 +742,24 @@ export default function Home() {
       }
 
       if (bootstrapResult.status === 'fulfilled' && bootstrapResult.value) {
+        const nextStatus = bootstrapResult.value;
         setBootstrap((prev) => ({
           ...prev,
-          isBootstrapped: bootstrapResult.value.isBootstrapped ?? prev.isBootstrapped,
-          identity: bootstrapResult.value.identity ?? prev.identity,
-          user: bootstrapResult.value.user ?? prev.user,
+          isBootstrapped: nextStatus.isBootstrapped ?? prev.isBootstrapped,
+          userOnboarded: nextStatus.userOnboarded ?? prev.userOnboarded,
+          identity: nextStatus.identity ?? prev.identity,
+          user: nextStatus.user ?? prev.user,
         }));
+
+        const needsOnboarding = !nextStatus.isBootstrapped || !nextStatus.userOnboarded;
+        if (needsOnboarding) {
+          setMessages((prev) => {
+            if (prev.some((m) => m.role === 'user' || m.role === 'tarot')) return prev;
+            return buildOnboardingMessages(nextStatus);
+          });
+          log('新規ユーザー/未初期化のため、名前決めオンボーディングを表示');
+          return;
+        }
       } else if (bootstrapResult.status === 'rejected') {
         log(`ブートストラップ状態取得失敗: ${bootstrapResult.reason instanceof Error ? bootstrapResult.reason.message : String(bootstrapResult.reason)}`);
       }
@@ -622,7 +772,7 @@ export default function Home() {
       setIsPreparing(false);
       setIsGeneratingAudio(false);
     }
-  }, [buildCheckinMessages, fetchWithTimeout, log, resolveUserId]);
+  }, [buildCheckinMessages, buildOnboardingMessages, fetchWithTimeout, log, resolveUserId]);
 
   useEffect(() => {
     prepareInBackground();
@@ -702,8 +852,16 @@ export default function Home() {
   }, []);
 
   // Send message (visible in chat)
-  const sendMessage = useCallback(async (text: string, showInChat: boolean = true) => {
+  const sendMessage = useCallback(async (
+    text: string,
+    showInChat: boolean = true,
+    source: 'stt' | 'text' | 'retry' | 'system' = 'text',
+  ) => {
     if (!text.trim()) return;
+    if (!turnPerfRef.current) {
+      beginTurnPerf(source, text);
+    }
+    markTurnPerf('send_enter');
 
     log(`メッセージ送信開始: ${text.substring(0, 10)}...`);
     setSendError(null);
@@ -748,6 +906,7 @@ export default function Home() {
     }
 
     try {
+      markTurnPerf('chat_request_start');
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -758,9 +917,11 @@ export default function Home() {
           history: toHistoryPayload(messages),
         }),
       });
+      markTurnPerf('chat_response_headers', `status=${response.status}`);
 
       if (response.ok) {
         const data = await response.json();
+        markTurnPerf('chat_response_body');
         log('レスポンス受信');
         setSendError(null);
 
@@ -781,22 +942,36 @@ export default function Home() {
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, assistantMessage]);
+        markTurnPerf('assistant_message_added');
 
         // Play TTS for response
         log(`TTS開始: "${data.message.substring(0, 20)}..."`);
-        playTTS(data.message);
+        markTurnPerf('tts_dispatch');
+        void playTTS(data.message).then((ok) => {
+          if (!ok) {
+            endTurnPerf('tts-not-played');
+          }
+        }).catch(() => {
+          endTurnPerf('tts-error');
+        });
       } else {
         const errorData = await response.json().catch(() => ({}));
         log('チャットAPIエラー: ' + (errorData.error || response.status));
+        markTurnPerf('chat_error_response');
         setSendError('送信に失敗しました。ネットワークを確認して再送してください。');
         setIsGeneratingAudio(false);
+        endTurnPerf('chat-error');
       }
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
         log('メッセージ送信が中断されました');
+        markTurnPerf('chat_aborted');
+        endTurnPerf('chat-aborted');
       } else {
         log('送信エラー: ' + (error as Error).message);
+        markTurnPerf('chat_exception');
         setSendError('送信に失敗しました。ネットワークを確認して再送してください。');
+        endTurnPerf('chat-exception');
       }
     } finally {
       if (abortControllerRef.current === controller) {
@@ -804,7 +979,7 @@ export default function Home() {
         abortControllerRef.current = null;
       }
     }
-  }, [messages, log, stopTTS, playTTS, unlockAudio, resolveUserId, toHistoryPayload]);
+  }, [messages, log, stopTTS, playTTS, unlockAudio, resolveUserId, toHistoryPayload, beginTurnPerf, markTurnPerf, endTurnPerf]);
 
   // Save to Obsidian
   const handleSave = useCallback(async () => {
@@ -953,7 +1128,7 @@ ${exportMessages.map(m => {
     );
     const positionText = isReversed ? '逆位置' : '正位置';
     const cardContext = `[タロットカードを引きました: ${card.name} ${card.symbol} - ${positionText}]\nキーワード: ${card.keywords.join('、')}\n問い: ${reflection}\n（${timeOfDay}のジャーナリングセッション）`;
-    sendMessage(cardContext, false);
+    sendMessage(cardContext, false, 'system');
   }, [sendMessage]);
 
   // Reset function
@@ -1075,7 +1250,7 @@ ${exportMessages.map(m => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    sendMessage(input);
+    sendMessage(input, true, 'text');
   };
 
   // Push-to-talk: start on press
@@ -1406,7 +1581,7 @@ ${exportMessages.map(m => {
                   <div className="px-4 py-3 rounded-2xl bg-red-500/20 border border-red-500/30 text-red-100 text-sm flex items-center gap-3">
                     <span>{sendError}</span>
                     <button
-                      onClick={() => sendMessage(lastSendTextRef.current)}
+                      onClick={() => sendMessage(lastSendTextRef.current, true, 'retry')}
                       className="px-3 py-1 rounded-full bg-red-500/40 hover:bg-red-500/60 text-xs"
                     >
                       再送
@@ -1730,11 +1905,13 @@ ${exportMessages.map(m => {
         onPlay={() => {
           const audio = audioRef.current;
           if (!audio) return;
+          markTurnPerf('audio_onPlay');
           log(`audio onPlay (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
         }}
         onPlaying={() => {
           const audio = audioRef.current;
           if (!audio) return;
+          markTurnPerf('audio_onPlaying');
           log(`audio onPlaying (t=${audio.currentTime.toFixed(2)}, rs=${audio.readyState}, ns=${audio.networkState})`);
         }}
         onPause={() => {
@@ -1756,6 +1933,8 @@ ${exportMessages.map(m => {
         }}
         onEnded={() => {
           setIsSpeaking(false);
+          markTurnPerf('audio_onEnded');
+          endTurnPerf('audio-ended');
           const audio = audioRef.current;
           if (!audio) return;
           const currentSrc = audio.currentSrc || audio.getAttribute('src') || '';
@@ -1780,6 +1959,8 @@ ${exportMessages.map(m => {
             return;
           }
           log('音声要素エラー');
+          markTurnPerf('audio_onError');
+          endTurnPerf('audio-error');
           setIsSpeaking(false);
           if (currentSrc.startsWith('blob:')) {
             URL.revokeObjectURL(currentSrc);
