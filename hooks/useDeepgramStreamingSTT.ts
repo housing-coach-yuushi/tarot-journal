@@ -27,7 +27,9 @@ type WebkitWindow = Window & {
 const DG_SAMPLE_RATE = 16000;
 const DG_CHANNELS = 1;
 const KEEPALIVE_INTERVAL_MS = 4000;
-const WS_OPEN_TIMEOUT_MS = 12000;
+const WS_OPEN_TIMEOUT_MS = 30000;
+// Push-to-talk journaling can be long. Keep retrying while the button is held.
+const MAX_UNEXPECTED_CLOSE_RETRIES = 999;
 const RELAY_WS_URL = (process.env.NEXT_PUBLIC_STT_RELAY_WS_URL || '').trim();
 
 function getAudioContextCtor(): typeof AudioContext | undefined {
@@ -453,7 +455,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
         } else if (!sessionEndedRef.current) {
           const closeDetail = `code=${event.code} reason=${event.reason || 'n/a'} auth=relay`;
           console.warn('[Deepgram STT] unexpected relay websocket close:', closeDetail);
-          if (unexpectedCloseRetryCountRef.current < 1) {
+          if (unexpectedCloseRetryCountRef.current < MAX_UNEXPECTED_CLOSE_RETRIES) {
             unexpectedCloseRetryCountRef.current += 1;
             setDebugStatus('再接続中...');
             reconnectRunnerRef.current?.();
@@ -536,7 +538,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
         } else if (!sessionEndedRef.current) {
           const closeDetail = `code=${event.code} reason=${event.reason || 'n/a'} auth=${authMode}`;
           console.warn('[Deepgram STT] unexpected websocket close:', closeDetail);
-          if (unexpectedCloseRetryCountRef.current < 1) {
+          if (unexpectedCloseRetryCountRef.current < MAX_UNEXPECTED_CLOSE_RETRIES) {
             unexpectedCloseRetryCountRef.current += 1;
             setDebugStatus('再接続中...');
             reconnectRunnerRef.current?.();
@@ -581,18 +583,33 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     clearTimers();
     cleanupAudio();
     cleanupSocket();
+    const retryAttempt = unexpectedCloseRetryCountRef.current;
+    const backoffMs = Math.min(3000, retryAttempt <= 1 ? 250 : 250 * (2 ** Math.min(4, retryAttempt - 1)));
     const sessionSeq = activeSessionSeqRef.current || (sessionSeqRef.current + 1);
     if (!activeSessionSeqRef.current) {
       sessionSeqRef.current = sessionSeq;
       activeSessionSeqRef.current = sessionSeq;
     }
-    void openStreamingSession(sessionSeq).catch((error) => {
-      const detail = error instanceof Error ? error.message : String(error);
-      const lower = detail.toLowerCase();
-      setDebugStatus(lower.includes('timeout') ? '接続タイムアウト' : '接続エラー');
-      onErrorRef.current?.('ws', detail.slice(0, 240));
-      finishSession('error');
-    });
+    window.setTimeout(() => {
+      if (stoppingRef.current || sessionEndedRef.current) return;
+      void openStreamingSession(sessionSeq).catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        const lower = detail.toLowerCase();
+        if (
+          !stoppingRef.current &&
+          !sessionEndedRef.current &&
+          unexpectedCloseRetryCountRef.current < MAX_UNEXPECTED_CLOSE_RETRIES
+        ) {
+          unexpectedCloseRetryCountRef.current += 1;
+          setDebugStatus('再接続中...');
+          reconnectRunnerRef.current?.();
+          return;
+        }
+        setDebugStatus(lower.includes('timeout') ? '接続タイムアウト' : '接続エラー');
+        onErrorRef.current?.('ws', detail.slice(0, 240));
+        finishSession('error');
+      });
+    }, backoffMs);
   }, [cleanupAudio, cleanupSocket, clearTimers, finishSession, openStreamingSession]);
 
   useEffect(() => {
