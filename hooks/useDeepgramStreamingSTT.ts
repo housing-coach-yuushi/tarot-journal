@@ -26,6 +26,7 @@ type WebkitWindow = Window & {
 
 const DG_SAMPLE_RATE = 16000;
 const DG_CHANNELS = 1;
+const KEEPALIVE_INTERVAL_MS = 4000;
 
 function getAudioContextCtor(): typeof AudioContext | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -95,6 +96,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const finalizeTimeoutRef = useRef<number | null>(null);
   const socketCloseFallbackTimerRef = useRef<number | null>(null);
+  const keepAliveTimerRef = useRef<number | null>(null);
 
   const finalTranscriptRef = useRef('');
   const interimTranscriptRef = useRef('');
@@ -102,6 +104,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const stoppingRef = useRef(false);
   const sessionEndedRef = useRef(false);
   const inputLevelRef = useRef(0);
+  const inputLevelUiRef = useRef(0);
+  const lastMeterUiUpdateAtRef = useRef(0);
 
   const onFinalResultRef = useRef(onFinalResult);
   const onEndRef = useRef(onEnd);
@@ -129,6 +133,10 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     if (socketCloseFallbackTimerRef.current !== null) {
       window.clearTimeout(socketCloseFallbackTimerRef.current);
       socketCloseFallbackTimerRef.current = null;
+    }
+    if (keepAliveTimerRef.current !== null) {
+      window.clearInterval(keepAliveTimerRef.current);
+      keepAliveTimerRef.current = null;
     }
   }, []);
 
@@ -183,6 +191,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     finalTranscriptRef.current = '';
     interimTranscriptRef.current = '';
     inputLevelRef.current = 0;
+    inputLevelUiRef.current = 0;
+    lastMeterUiUpdateAtRef.current = 0;
     shouldSendOnStopRef.current = false;
     stoppingRef.current = false;
     sessionEndedRef.current = false;
@@ -310,7 +320,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     url.searchParams.set('channels', String(DG_CHANNELS));
     url.searchParams.set('interim_results', 'true');
     url.searchParams.set('vad_events', 'true');
-    url.searchParams.set('endpointing', '300');
+    // Match Deepgram Playground stable streaming config for push-to-talk UX.
+    url.searchParams.set('endpointing', 'false');
     url.searchParams.set('smart_format', 'true');
     url.searchParams.set('punctuate', 'true');
 
@@ -344,7 +355,12 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       const normalized = Math.min(1, rms * 12);
       const smoothed = Math.max(normalized, inputLevelRef.current * 0.82);
       inputLevelRef.current = smoothed;
-      setInputLevel(smoothed);
+      const now = performance.now();
+      if (now - lastMeterUiUpdateAtRef.current > 60 || Math.abs(smoothed - inputLevelUiRef.current) > 0.18) {
+        lastMeterUiUpdateAtRef.current = now;
+        inputLevelUiRef.current = smoothed;
+        setInputLevel(smoothed);
+      }
       const pcm16 = downsampleTo16k(input, audioContext.sampleRate);
       if (pcm16.byteLength > 0) {
         socket.send(pcm16.buffer);
@@ -365,6 +381,18 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
 
       ws.onopen = () => {
         window.clearTimeout(openTimer);
+        if (keepAliveTimerRef.current !== null) {
+          window.clearInterval(keepAliveTimerRef.current);
+        }
+        keepAliveTimerRef.current = window.setInterval(() => {
+          const socket = wsRef.current;
+          if (!socket || socket.readyState !== WebSocket.OPEN || stoppingRef.current) return;
+          try {
+            socket.send(JSON.stringify({ type: 'KeepAlive' }));
+          } catch {
+            // no-op
+          }
+        }, KEEPALIVE_INTERVAL_MS);
         setDebugStatus('録音中');
         settle(resolve);
       };
@@ -391,7 +419,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
         }
       };
     });
-  }, [deepgramLang, fetchDeepgramToken, finishSession, handleWsMessage]);
+  }, [cleanupAudio, cleanupSocket, clearTimers, deepgramLang, fetchDeepgramToken, finishSession, handleWsMessage]);
 
   const startListening = useCallback(async () => {
     if (!isSupported) {
@@ -434,6 +462,9 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
         code = 'ws';
         status = '接続タイムアウト';
       } else if (lower.includes('websocket')) {
+        code = 'ws';
+        status = '接続エラー';
+      } else if (lower.includes('closed before ready')) {
         code = 'ws';
         status = '接続エラー';
       }

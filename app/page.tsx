@@ -131,6 +131,7 @@ export default function Home() {
   const heldTranscriptRef = useRef<string>('');
   const turnPerfRef = useRef<TurnPerfTrace | null>(null);
   const turnPerfSeqRef = useRef<number>(0);
+  const ttsChunkPrefetchRef = useRef<Promise<{ blob: Blob; contentType: string; text: string } | null> | null>(null);
   // checkin is shown directly in chat for new users
   const MAX_RENDER_MESSAGES = 80;
   const MAX_CHAT_HISTORY_MESSAGES = 24;
@@ -396,6 +397,45 @@ export default function Home() {
     // No-op: streaming WS playback was removed for stability.
   }, []);
 
+  const splitTtsTextIntoChunks = useCallback((text: string): string[] => {
+    const normalized = text.replace(/\r\n/g, '\n').trim();
+    if (!normalized) return [];
+
+    const chunks: string[] = [];
+    let buffer = '';
+    const flush = () => {
+      const value = buffer.replace(/\s+/g, ' ').trim();
+      if (value) chunks.push(value);
+      buffer = '';
+    };
+
+    for (const ch of normalized) {
+      buffer += ch;
+      if (/[。！？!?]/.test(ch)) {
+        flush();
+      } else if (ch === '\n' && buffer.trim().length > 0) {
+        flush();
+      }
+    }
+    flush();
+
+    // Merge tiny trailing fragments to avoid choppy prosody.
+    const merged: string[] = [];
+    for (const chunk of chunks) {
+      if (merged.length === 0) {
+        merged.push(chunk);
+        continue;
+      }
+      if (chunk.length < 8) {
+        merged[merged.length - 1] = `${merged[merged.length - 1]} ${chunk}`.trim();
+      } else {
+        merged.push(chunk);
+      }
+    }
+
+    return merged.length > 0 ? merged : [normalized];
+  }, []);
+
   const unlockAudio = useCallback(async (): Promise<boolean> => {
     try {
       if (audioUnlocked && audioElementPrimedRef.current) return true;
@@ -452,10 +492,14 @@ export default function Home() {
     }
   }, [audioUnlocked, isGeneratingAudio, isSpeaking, log]);
 
-  const playDeepgramTTS = useCallback(async (text: string, version: number, voiceIdOverride?: string) => {
-    if (typeof window === 'undefined') return false;
-    stopDeepgramTTS();
-    markTurnPerf('tts_request_start');
+  const fetchDeepgramTTSBlob = useCallback(async (
+    text: string,
+    version: number,
+    voiceIdOverride?: string,
+    chunkLabel?: string,
+  ): Promise<{ blob: Blob; contentType: string; text: string } | null> => {
+    if (typeof window === 'undefined') return null;
+    markTurnPerf('tts_request_start', chunkLabel);
     const response = await fetch('/api/tts', {
       method: 'POST',
       headers: {
@@ -471,18 +515,29 @@ export default function Home() {
       const details = await response.text().catch(() => '');
       throw new Error(`TTS API error: ${response.status} ${details}`);
     }
-    markTurnPerf('tts_response_headers', `status=${response.status}`);
+    markTurnPerf('tts_response_headers', `${chunkLabel || ''} status=${response.status}`.trim());
 
-    if (version !== ttsVersionRef.current) return false;
-    if (!audioRef.current) throw new Error('audio element missing');
+    if (version !== ttsVersionRef.current) return null;
 
     const contentType = response.headers.get('content-type') || '';
     const audioBlob = await response.blob();
-    if (version !== ttsVersionRef.current) return false;
-    markTurnPerf('tts_blob_ready', `${audioBlob.size}b`);
-    log(`TTS blob: ${audioBlob.size} bytes (${contentType || 'unknown'})`);
+    if (version !== ttsVersionRef.current) return null;
+    markTurnPerf('tts_blob_ready', `${chunkLabel || ''} ${audioBlob.size}b`.trim());
+    log(`TTS blob${chunkLabel ? `(${chunkLabel})` : ''}: ${audioBlob.size} bytes (${contentType || 'unknown'})`);
 
-    const nextUrl = URL.createObjectURL(audioBlob);
+    return { blob: audioBlob, contentType, text };
+  }, [log, markTurnPerf]);
+
+  const playDeepgramBlob = useCallback(async (
+    payload: { blob: Blob; contentType: string },
+    version: number,
+  ) => {
+    if (typeof window === 'undefined') return false;
+    stopDeepgramTTS();
+    if (version !== ttsVersionRef.current) return false;
+    if (!audioRef.current) throw new Error('audio element missing');
+
+    const nextUrl = URL.createObjectURL(payload.blob);
     const audio = audioRef.current;
     if (audio.src && audio.src.startsWith('blob:')) {
       URL.revokeObjectURL(audio.src);
@@ -551,6 +606,46 @@ export default function Home() {
     return true;
   }, [stopDeepgramTTS, unlockAudio, log, markTurnPerf]);
 
+  const waitForAudioSegmentEnd = useCallback(async (version: number): Promise<boolean> => {
+    const audio = audioRef.current;
+    if (!audio) return false;
+    if (version !== ttsVersionRef.current) return false;
+
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const cleanup = () => {
+        audio.removeEventListener('ended', onEnded);
+        audio.removeEventListener('error', onError);
+        if (watchdog !== null) {
+          window.clearInterval(watchdog);
+        }
+      };
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const onEnded = () => finish();
+      const onError = () => finish();
+      audio.addEventListener('ended', onEnded);
+      audio.addEventListener('error', onError);
+      const watchdog = window.setInterval(() => {
+        if (version !== ttsVersionRef.current) {
+          finish();
+        }
+      }, 120);
+    });
+
+    return version === ttsVersionRef.current;
+  }, []);
+
+  const playDeepgramTTS = useCallback(async (text: string, version: number, voiceIdOverride?: string) => {
+    const payload = await fetchDeepgramTTSBlob(text, version, voiceIdOverride);
+    if (!payload) return false;
+    return playDeepgramBlob(payload, version);
+  }, [fetchDeepgramTTSBlob, playDeepgramBlob]);
+
   // Play TTS for a message (server-side Deepgram REST)
   const playTTS = useCallback(async (text: string): Promise<boolean> => {
     if (!ttsEnabled) {
@@ -567,11 +662,67 @@ export default function Home() {
     const selectedVoiceId = rawVoiceId && getVoiceById(rawVoiceId) ? rawVoiceId : DEFAULT_VOICE_ID;
 
     try {
-      const ok = await playDeepgramTTS(text, currentVersion, selectedVoiceId);
-      if (ok) return true;
-      setIsGeneratingAudio(false);
-      markTurnPerf('tts_no_playback');
-      return false;
+      const chunks = splitTtsTextIntoChunks(text);
+      log(`TTS chunking: ${chunks.length} chunk(s)`);
+
+      if (chunks.length <= 1) {
+        const ok = await playDeepgramTTS(text, currentVersion, selectedVoiceId);
+        if (ok) return true;
+        setIsGeneratingAudio(false);
+        markTurnPerf('tts_no_playback');
+        return false;
+      }
+
+      ttsChunkPrefetchRef.current = fetchDeepgramTTSBlob(
+        chunks[0],
+        currentVersion,
+        selectedVoiceId,
+        `1/${chunks.length}`,
+      );
+
+      for (let i = 0; i < chunks.length; i += 1) {
+        const currentPromise = ttsChunkPrefetchRef.current || fetchDeepgramTTSBlob(
+          chunks[i],
+          currentVersion,
+          selectedVoiceId,
+          `${i + 1}/${chunks.length}`,
+        );
+        const payload = await currentPromise;
+        ttsChunkPrefetchRef.current = null;
+        if (!payload || currentVersion !== ttsVersionRef.current) {
+          setIsGeneratingAudio(false);
+          markTurnPerf('tts_sequence_cancelled');
+          return false;
+        }
+
+        if (i + 1 < chunks.length) {
+          ttsChunkPrefetchRef.current = fetchDeepgramTTSBlob(
+            chunks[i + 1],
+            currentVersion,
+            selectedVoiceId,
+            `${i + 2}/${chunks.length}`,
+          );
+        }
+
+        const started = await playDeepgramBlob(payload, currentVersion);
+        if (!started) {
+          setIsGeneratingAudio(false);
+          markTurnPerf('tts_no_playback');
+          return false;
+        }
+
+        // Wait between chunks; final chunk can continue on existing audio events.
+        if (i + 1 < chunks.length) {
+          const finished = await waitForAudioSegmentEnd(currentVersion);
+          if (!finished) {
+            setIsGeneratingAudio(false);
+            markTurnPerf('tts_sequence_interrupted');
+            return false;
+          }
+        }
+      }
+
+      return true;
     } catch (error) {
       const message = (error as Error).message || 'unknown';
       const lower = message.toLowerCase();
@@ -601,7 +752,7 @@ export default function Home() {
       }
       return fallbackOk;
     }
-  }, [ttsEnabled, log, playDeepgramTTS, speakWithBrowser, bootstrap.identity?.voiceId, pushNotice, markTurnPerf]);
+  }, [ttsEnabled, log, playDeepgramTTS, fetchDeepgramTTSBlob, playDeepgramBlob, waitForAudioSegmentEnd, speakWithBrowser, bootstrap.identity?.voiceId, pushNotice, markTurnPerf, splitTtsTextIntoChunks]);
 
   // Stop TTS
   const stopTTS = useCallback(() => {
@@ -615,6 +766,7 @@ export default function Home() {
       log('音声停止');
     }
     ttsVersionRef.current++; // Invalidate any pending TTS fetches
+    ttsChunkPrefetchRef.current = null;
     stopDeepgramTTS();
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
