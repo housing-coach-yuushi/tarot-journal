@@ -110,6 +110,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const inputLevelUiRef = useRef(0);
   const lastMeterUiUpdateAtRef = useRef(0);
   const unexpectedCloseRetryCountRef = useRef(0);
+  const relayWsUrlRef = useRef<string>(RELAY_WS_URL);
+  const relayWsUrlFetchTriedRef = useRef<boolean>(Boolean(RELAY_WS_URL));
 
   const onFinalResultRef = useRef(onFinalResult);
   const onEndRef = useRef(onEnd);
@@ -259,6 +261,25 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     return data.access_token as string;
   }, []);
 
+  const resolveRelayWsUrl = useCallback(async (): Promise<string> => {
+    if (relayWsUrlRef.current) return relayWsUrlRef.current;
+    if (relayWsUrlFetchTriedRef.current) return '';
+    relayWsUrlFetchTriedRef.current = true;
+
+    try {
+      const response = await fetch('/api/stt/config', { cache: 'no-store' });
+      if (!response.ok) return '';
+      const data = await response.json() as { relayWsUrl?: string };
+      const relayWsUrl = (data?.relayWsUrl || '').trim();
+      if (relayWsUrl) {
+        relayWsUrlRef.current = relayWsUrl;
+      }
+      return relayWsUrl;
+    } catch {
+      return '';
+    }
+  }, []);
+
   const handleWsMessage = useCallback((event: MessageEvent) => {
     let payload: DeepgramResultsMessage | null = null;
     try {
@@ -297,7 +318,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   }, []);
 
   const openStreamingSession = useCallback(async () => {
-    const token = RELAY_WS_URL ? null : await fetchDeepgramToken();
+    const relayWsUrl = await resolveRelayWsUrl();
+    const token = relayWsUrl ? null : await fetchDeepgramToken();
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
@@ -354,7 +376,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       }
     };
 
-    const baseUrl = new URL(RELAY_WS_URL || 'wss://api.deepgram.com/v1/listen');
+    const baseUrl = new URL(relayWsUrl || 'wss://api.deepgram.com/v1/listen');
     baseUrl.searchParams.set('model', 'nova-3');
     baseUrl.searchParams.set('language', deepgramLang);
     baseUrl.searchParams.set('encoding', 'linear16');
@@ -511,7 +533,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     });
 
     let lastConnectError: Error | null = null;
-    if (RELAY_WS_URL) {
+    if (relayWsUrl) {
       try {
         await connectRelay();
         return;
@@ -535,7 +557,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     if (lastConnectError) {
       throw lastConnectError;
     }
-  }, [cleanupAudio, cleanupSocket, clearTimers, deepgramLang, fetchDeepgramToken, finishSession, handleWsMessage]);
+  }, [cleanupAudio, cleanupSocket, clearTimers, deepgramLang, fetchDeepgramToken, finishSession, handleWsMessage, resolveRelayWsUrl]);
 
   const retryUnexpectedClose = useCallback(() => {
     if (stoppingRef.current || sessionEndedRef.current) return;
