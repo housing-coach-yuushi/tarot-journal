@@ -325,6 +325,9 @@ export default function Home() {
       sendMessage(finalText, true, 'stt');
       heldTranscriptRef.current = '';
     },
+    onError: (code, detail) => {
+      log(`STT error [${code}]${detail ? ` ${detail}` : ''}`);
+    },
   });
 
   useEffect(() => {
