@@ -101,6 +101,9 @@ wss.on('connection', (client, req) => {
   let deepgramOpen = false;
   let closing = false;
   let keepAliveTimer = null;
+  let clientBinaryChunks = 0;
+  let clientBinaryBytes = 0;
+  let deepgramResultCount = 0;
 
   const clearKeepAlive = () => {
     if (keepAliveTimer) {
@@ -157,6 +160,26 @@ wss.on('connection', (client, req) => {
   });
 
   deepgram.on('message', (data, isBinary) => {
+    if (!isBinary) {
+      try {
+        const text = typeof data === 'string' ? data : data.toString('utf8');
+        const parsed = JSON.parse(text);
+        const type = parsed?.type || 'unknown';
+        if (type === 'Results') {
+          deepgramResultCount += 1;
+          const transcript = parsed?.channel?.alternatives?.[0]?.transcript || '';
+          if (transcript) {
+            log('deepgram result', clientIp, `final=${Boolean(parsed?.is_final)}`, `speechFinal=${Boolean(parsed?.speech_final)}`, `len=${String(transcript).length}`);
+          }
+        } else if (type === 'Error') {
+          log('deepgram message error', clientIp, text.slice(0, 300));
+        } else if (type !== 'Metadata' && type !== 'UtteranceEnd') {
+          log('deepgram message', clientIp, `type=${type}`);
+        }
+      } catch {
+        // ignore parse failures for logging only
+      }
+    }
     if (client.readyState !== WebSocket.OPEN) return;
     try {
       client.send(data, { binary: Boolean(isBinary) });
@@ -180,7 +203,15 @@ wss.on('connection', (client, req) => {
   deepgram.on('close', (code, reasonBuffer) => {
     const reason = Buffer.isBuffer(reasonBuffer) ? reasonBuffer.toString('utf8') : String(reasonBuffer || '');
     clearKeepAlive();
-    log('deepgram close', clientIp, `code=${code}`, `reason=${reason || 'n/a'}`);
+    log(
+      'deepgram close',
+      clientIp,
+      `code=${code}`,
+      `reason=${reason || 'n/a'}`,
+      `clientChunks=${clientBinaryChunks}`,
+      `clientBytes=${clientBinaryBytes}`,
+      `results=${deepgramResultCount}`,
+    );
     if (client.readyState === WebSocket.OPEN) {
       try {
         client.send(JSON.stringify({ type: 'RelayClose', code, reason }));
@@ -195,6 +226,11 @@ wss.on('connection', (client, req) => {
   client.on('message', (data, isBinary) => {
     if (closing) return;
     if (isBinary) {
+      clientBinaryChunks += 1;
+      clientBinaryBytes += Buffer.byteLength(data);
+      if (clientBinaryChunks === 1 || clientBinaryChunks % 50 === 0) {
+        log('client audio', clientIp, `chunks=${clientBinaryChunks}`, `bytes=${clientBinaryBytes}`);
+      }
       forwardToDeepgram(data, true);
       return;
     }
@@ -264,4 +300,3 @@ server.on('upgrade', (req, socket, head) => {
 server.listen(PORT, () => {
   log(`listening on :${PORT}`);
 });
-

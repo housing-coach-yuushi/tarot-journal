@@ -100,6 +100,9 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const socketCloseFallbackTimerRef = useRef<number | null>(null);
   const keepAliveTimerRef = useRef<number | null>(null);
   const reconnectRunnerRef = useRef<(() => void) | null>(null);
+  const startInFlightRef = useRef(false);
+  const sessionSeqRef = useRef(0);
+  const activeSessionSeqRef = useRef(0);
 
   const finalTranscriptRef = useRef('');
   const interimTranscriptRef = useRef('');
@@ -236,6 +239,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   }, []);
 
   const finishSession = useCallback((reason: 'send' | 'cancel' | 'error') => {
+    startInFlightRef.current = false;
     clearTimers();
     cleanupAudio();
     cleanupSocket();
@@ -317,7 +321,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     }
   }, []);
 
-  const openStreamingSession = useCallback(async () => {
+  const openStreamingSession = useCallback(async (sessionSeq: number) => {
     const relayWsUrl = await resolveRelayWsUrl();
     const token = relayWsUrl ? null : await fetchDeepgramToken();
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -351,6 +355,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     processor.connect(audioContext.destination);
 
     processor.onaudioprocess = (evt: AudioProcessingEvent) => {
+      if (activeSessionSeqRef.current !== sessionSeq) return;
       const socket = wsRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN || stoppingRef.current) return;
       const input = evt.inputBuffer.getChannelData(0);
@@ -406,6 +411,12 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       }, WS_OPEN_TIMEOUT_MS);
 
       ws.onopen = () => {
+        if (activeSessionSeqRef.current !== sessionSeq) {
+          try { ws.close(); } catch { /* no-op */ }
+          window.clearTimeout(openTimer);
+          settle(() => reject(new Error('Deepgram relay websocket superseded')));
+          return;
+        }
         window.clearTimeout(openTimer);
         if (keepAliveTimerRef.current !== null) {
           window.clearInterval(keepAliveTimerRef.current);
@@ -483,6 +494,12 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       }, WS_OPEN_TIMEOUT_MS);
 
       ws.onopen = () => {
+        if (activeSessionSeqRef.current !== sessionSeq) {
+          try { ws.close(); } catch { /* no-op */ }
+          window.clearTimeout(openTimer);
+          settle(() => reject(new Error(`Deepgram websocket superseded (${authMode})`)));
+          return;
+        }
         window.clearTimeout(openTimer);
         if (keepAliveTimerRef.current !== null) {
           window.clearInterval(keepAliveTimerRef.current);
@@ -564,7 +581,12 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     clearTimers();
     cleanupAudio();
     cleanupSocket();
-    void openStreamingSession().catch((error) => {
+    const sessionSeq = activeSessionSeqRef.current || (sessionSeqRef.current + 1);
+    if (!activeSessionSeqRef.current) {
+      sessionSeqRef.current = sessionSeq;
+      activeSessionSeqRef.current = sessionSeq;
+    }
+    void openStreamingSession(sessionSeq).catch((error) => {
       const detail = error instanceof Error ? error.message : String(error);
       const lower = detail.toLowerCase();
       setDebugStatus(lower.includes('timeout') ? '接続タイムアウト' : '接続エラー');
@@ -585,15 +607,21 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       setDebugStatus('未対応');
       return;
     }
-    if (isListening) return;
+    if (isListening || startInFlightRef.current) return;
+    startInFlightRef.current = true;
+    const sessionSeq = sessionSeqRef.current + 1;
+    sessionSeqRef.current = sessionSeq;
+    activeSessionSeqRef.current = sessionSeq;
 
     resetSessionState();
     setDebugStatus('マイク取得中');
     setIsListening(true);
 
     try {
-      await openStreamingSession();
+      await openStreamingSession(sessionSeq);
+      startInFlightRef.current = false;
     } catch (error) {
+      startInFlightRef.current = false;
       cleanupAudio();
       cleanupSocket();
       setIsListening(false);
@@ -686,6 +714,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   }, [cleanupAudio, finishSession, isListening]);
 
   const cancel = useCallback(() => {
+    startInFlightRef.current = false;
     shouldSendOnStopRef.current = false;
     stoppingRef.current = true;
     setIsListening(false);
