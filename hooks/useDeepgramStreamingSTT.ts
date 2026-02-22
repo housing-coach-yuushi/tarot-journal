@@ -27,6 +27,7 @@ type WebkitWindow = Window & {
 const DG_SAMPLE_RATE = 16000;
 const DG_CHANNELS = 1;
 const KEEPALIVE_INTERVAL_MS = 4000;
+const WS_OPEN_TIMEOUT_MS = 12000;
 
 function getAudioContextCtor(): typeof AudioContext | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -315,28 +316,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       await audioContext.resume();
     }
 
-    const url = new URL('wss://api.deepgram.com/v1/listen');
-    url.searchParams.set('model', 'nova-3');
-    url.searchParams.set('language', deepgramLang);
-    url.searchParams.set('encoding', 'linear16');
-    url.searchParams.set('sample_rate', String(DG_SAMPLE_RATE));
-    url.searchParams.set('channels', String(DG_CHANNELS));
-    url.searchParams.set('interim_results', 'true');
-    url.searchParams.set('vad_events', 'true');
-    // Match Deepgram Playground stable streaming config for push-to-talk UX.
-    url.searchParams.set('endpointing', 'false');
-    url.searchParams.set('smart_format', 'true');
-    url.searchParams.set('punctuate', 'true');
-
-    // Browser WS auth can be flaky with Sec-WebSocket-Protocol on some clients.
-    // Deepgram supports temp-token auth via query parameter on listen streaming.
-    url.searchParams.set('token', token);
-    const ws = new WebSocket(url.toString());
-    ws.binaryType = 'arraybuffer';
-
     mediaStreamRef.current = stream;
     audioContextRef.current = audioContext;
-    wsRef.current = ws;
 
     const source = audioContext.createMediaStreamSource(stream);
     const processor = audioContext.createScriptProcessor(4096, 1, 1);
@@ -372,7 +353,31 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       }
     };
 
-    await new Promise<void>((resolve, reject) => {
+    const baseUrl = new URL('wss://api.deepgram.com/v1/listen');
+    baseUrl.searchParams.set('model', 'nova-3');
+    baseUrl.searchParams.set('language', deepgramLang);
+    baseUrl.searchParams.set('encoding', 'linear16');
+    baseUrl.searchParams.set('sample_rate', String(DG_SAMPLE_RATE));
+    baseUrl.searchParams.set('channels', String(DG_CHANNELS));
+    baseUrl.searchParams.set('interim_results', 'true');
+    baseUrl.searchParams.set('vad_events', 'true');
+    // Match Deepgram Playground stable streaming config for push-to-talk UX.
+    baseUrl.searchParams.set('endpointing', 'false');
+    baseUrl.searchParams.set('smart_format', 'true');
+    baseUrl.searchParams.set('punctuate', 'true');
+
+    const connectWithAuth = (authMode: 'query' | 'subprotocol') => new Promise<void>((resolve, reject) => {
+      const url = new URL(baseUrl.toString());
+      let ws: WebSocket;
+      if (authMode === 'query') {
+        url.searchParams.set('token', token);
+        ws = new WebSocket(url.toString());
+      } else {
+        ws = new WebSocket(url.toString(), ['token', token]);
+      }
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
+
       let settled = false;
       const settle = (fn: () => void) => {
         if (settled) return;
@@ -381,8 +386,8 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       };
 
       const openTimer = window.setTimeout(() => {
-        settle(() => reject(new Error('Deepgram websocket timeout')));
-      }, 7000);
+        settle(() => reject(new Error(`Deepgram websocket timeout (${authMode})`)));
+      }, WS_OPEN_TIMEOUT_MS);
 
       ws.onopen = () => {
         window.clearTimeout(openTimer);
@@ -404,7 +409,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
 
       ws.onerror = () => {
         window.clearTimeout(openTimer);
-        settle(() => reject(new Error('Deepgram websocket error')));
+        settle(() => reject(new Error(`Deepgram websocket error (${authMode})`)));
       };
 
       ws.onmessage = handleWsMessage;
@@ -412,13 +417,14 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
       ws.onclose = (event: CloseEvent) => {
         window.clearTimeout(openTimer);
         if (!settled) {
-          settle(() => reject(new Error('Deepgram websocket closed before ready')));
+          const closeDetail = `code=${event.code} reason=${event.reason || 'n/a'} auth=${authMode}`;
+          settle(() => reject(new Error(`Deepgram websocket closed before ready (${closeDetail})`)));
           return;
         }
         if (stoppingRef.current) {
           finishSession(shouldSendOnStopRef.current ? 'send' : 'cancel');
         } else if (!sessionEndedRef.current) {
-          const closeDetail = `code=${event.code} reason=${event.reason || 'n/a'}`;
+          const closeDetail = `code=${event.code} reason=${event.reason || 'n/a'} auth=${authMode}`;
           console.warn('[Deepgram STT] unexpected websocket close:', closeDetail);
           if (unexpectedCloseRetryCountRef.current < 1) {
             unexpectedCloseRetryCountRef.current += 1;
@@ -432,6 +438,22 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
         }
       };
     });
+
+    let lastConnectError: Error | null = null;
+    for (const authMode of ['query', 'subprotocol'] as const) {
+      try {
+        await connectWithAuth(authMode);
+        lastConnectError = null;
+        break;
+      } catch (error) {
+        lastConnectError = error instanceof Error ? error : new Error(String(error));
+        console.warn(`[Deepgram STT] open failed via ${authMode}:`, lastConnectError.message);
+        cleanupSocket();
+      }
+    }
+    if (lastConnectError) {
+      throw lastConnectError;
+    }
   }, [cleanupAudio, cleanupSocket, clearTimers, deepgramLang, fetchDeepgramToken, finishSession, handleWsMessage]);
 
   const retryUnexpectedClose = useCallback(() => {
