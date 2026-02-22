@@ -97,6 +97,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const finalizeTimeoutRef = useRef<number | null>(null);
   const socketCloseFallbackTimerRef = useRef<number | null>(null);
   const keepAliveTimerRef = useRef<number | null>(null);
+  const reconnectRunnerRef = useRef<(() => void) | null>(null);
 
   const finalTranscriptRef = useRef('');
   const interimTranscriptRef = useRef('');
@@ -106,6 +107,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const inputLevelRef = useRef(0);
   const inputLevelUiRef = useRef(0);
   const lastMeterUiUpdateAtRef = useRef(0);
+  const unexpectedCloseRetryCountRef = useRef(0);
 
   const onFinalResultRef = useRef(onFinalResult);
   const onEndRef = useRef(onEnd);
@@ -193,6 +195,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     inputLevelRef.current = 0;
     inputLevelUiRef.current = 0;
     lastMeterUiUpdateAtRef.current = 0;
+    unexpectedCloseRetryCountRef.current = 0;
     shouldSendOnStopRef.current = false;
     stoppingRef.current = false;
     sessionEndedRef.current = false;
@@ -325,8 +328,10 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
     url.searchParams.set('smart_format', 'true');
     url.searchParams.set('punctuate', 'true');
 
-    // Deepgram browser auth supports token subprotocol.
-    const ws = new WebSocket(url.toString(), ['token', token]);
+    // Browser WS auth can be flaky with Sec-WebSocket-Protocol on some clients.
+    // Deepgram supports temp-token auth via query parameter on listen streaming.
+    url.searchParams.set('token', token);
+    const ws = new WebSocket(url.toString());
     ws.binaryType = 'arraybuffer';
 
     mediaStreamRef.current = stream;
@@ -404,7 +409,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
 
       ws.onmessage = handleWsMessage;
 
-      ws.onclose = () => {
+      ws.onclose = (event: CloseEvent) => {
         window.clearTimeout(openTimer);
         if (!settled) {
           settle(() => reject(new Error('Deepgram websocket closed before ready')));
@@ -413,13 +418,42 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
         if (stoppingRef.current) {
           finishSession(shouldSendOnStopRef.current ? 'send' : 'cancel');
         } else if (!sessionEndedRef.current) {
+          const closeDetail = `code=${event.code} reason=${event.reason || 'n/a'}`;
+          console.warn('[Deepgram STT] unexpected websocket close:', closeDetail);
+          if (unexpectedCloseRetryCountRef.current < 1) {
+            unexpectedCloseRetryCountRef.current += 1;
+            setDebugStatus('再接続中...');
+            reconnectRunnerRef.current?.();
+            return;
+          }
           setDebugStatus('接続エラー');
-          onErrorRef.current?.('ws', 'socket closed unexpectedly');
+          onErrorRef.current?.('ws', `socket closed unexpectedly (${closeDetail})`);
           finishSession('error');
         }
       };
     });
   }, [cleanupAudio, cleanupSocket, clearTimers, deepgramLang, fetchDeepgramToken, finishSession, handleWsMessage]);
+
+  const retryUnexpectedClose = useCallback(() => {
+    if (stoppingRef.current || sessionEndedRef.current) return;
+    clearTimers();
+    cleanupAudio();
+    cleanupSocket();
+    void openStreamingSession().catch((error) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      const lower = detail.toLowerCase();
+      setDebugStatus(lower.includes('timeout') ? '接続タイムアウト' : '接続エラー');
+      onErrorRef.current?.('ws', detail.slice(0, 240));
+      finishSession('error');
+    });
+  }, [cleanupAudio, cleanupSocket, clearTimers, finishSession, openStreamingSession]);
+
+  useEffect(() => {
+    reconnectRunnerRef.current = retryUnexpectedClose;
+    return () => {
+      reconnectRunnerRef.current = null;
+    };
+  }, [retryUnexpectedClose]);
 
   const startListening = useCallback(async () => {
     if (!isSupported) {
