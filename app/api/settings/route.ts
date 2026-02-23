@@ -7,10 +7,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
     getAIIdentity,
-    updateAIIdentity,
+    setAIIdentity,
+    getUserAIIdentity,
+    setUserAIIdentity,
+    getResolvedAIIdentity,
     getUserProfile,
     updateUserProfile,
     resolveCanonicalUserId,
+    type AIIdentity,
 } from '@/lib/db/redis';
 import { JAPANESE_VOICES, DEFAULT_VOICE_ID, getVoiceById } from '@/lib/tts/voices';
 
@@ -27,17 +31,19 @@ export async function GET(request: NextRequest) {
         : (forcedUserId || null);
 
     try {
-        const identity = await getAIIdentity();
+        const rawIdentity = await getResolvedAIIdentity(userId || undefined);
         const user = userId ? await getUserProfile(userId) : null;
         const fixedVoice = getVoiceById(DEFAULT_VOICE_ID);
 
         return NextResponse.json({
-            identity: identity ? {
-                name: identity.name,
+            identity: rawIdentity ? {
+                name: rawIdentity.name,
                 voiceId: DEFAULT_VOICE_ID,
-                emoji: identity.emoji,
-                showDebug: identity.showDebug,
-                bgmEnabled: identity.bgmEnabled,
+                emoji: rawIdentity.emoji,
+                creature: rawIdentity.personality,
+                vibe: rawIdentity.speakingStyle,
+                showDebug: rawIdentity.showDebug,
+                bgmEnabled: rawIdentity.bgmEnabled,
             } : null,
             user: user ? {
                 displayName: user.displayName,
@@ -63,7 +69,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { userId: rawUserId, aiName, userName, voiceId, showDebug, bgmEnabled } = body;
+        const { userId: rawUserId, aiName, userName, voiceId, showDebug, bgmEnabled, aiCreature, aiVibe } = body;
         const forcedUserId = (process.env.FORCE_USER_ID || '').trim();
         const normalizedUserId = typeof rawUserId === 'string' && rawUserId.trim() && rawUserId !== 'default'
             ? rawUserId.trim()
@@ -75,20 +81,41 @@ export async function POST(request: NextRequest) {
         const updates: Record<string, unknown> = {};
 
         // Update AI identity
-        if (aiName !== undefined || voiceId !== undefined || showDebug !== undefined || bgmEnabled !== undefined) {
-            const aiUpdates: Record<string, unknown> = {};
-            if (aiName) aiUpdates.name = aiName;
-            if (voiceId !== undefined) {
-                // Stability-first: keep conversation voice fixed regardless of UI input.
-                aiUpdates.voiceId = DEFAULT_VOICE_ID;
-            }
-            if (showDebug !== undefined) aiUpdates.showDebug = showDebug;
-            if (bgmEnabled !== undefined) aiUpdates.bgmEnabled = bgmEnabled;
+        if (aiName !== undefined || voiceId !== undefined || showDebug !== undefined || bgmEnabled !== undefined || aiCreature !== undefined || aiVibe !== undefined) {
+            const now = new Date().toISOString();
+            const existingUserIdentity = userId ? await getUserAIIdentity(userId) : null;
+            const existingGlobalIdentity = await getAIIdentity();
+            const base = existingUserIdentity || existingGlobalIdentity;
 
-            if (Object.keys(aiUpdates).length > 0) {
-                const updatedIdentity = await updateAIIdentity(aiUpdates);
-                updates.identity = updatedIdentity;
+            const next: AIIdentity = {
+                name: (typeof aiName === 'string' && aiName.trim()) ? aiName.trim() : (base?.name || 'ジョージ'),
+                personality: (typeof aiCreature === 'string' && aiCreature.trim()) ? aiCreature.trim() : (base?.personality || 'ジャーナリング・パートナー'),
+                speakingStyle: (typeof aiVibe === 'string' && aiVibe.trim()) ? aiVibe.trim() : (base?.speakingStyle || '落ち着いた、親しみやすい'),
+                emoji: base?.emoji || '✍️',
+                // Stability-first: keep conversation voice fixed regardless of UI input.
+                voiceId: DEFAULT_VOICE_ID,
+                showDebug: showDebug ?? base?.showDebug ?? false,
+                bgmEnabled: bgmEnabled ?? base?.bgmEnabled ?? false,
+                createdAt: base?.createdAt || now,
+                updatedAt: now,
+            };
+
+            if (userId) {
+                await setUserAIIdentity(userId, next);
+            } else {
+                await setAIIdentity(next);
             }
+
+            const updatedIdentity = await getResolvedAIIdentity(userId || undefined);
+            updates.identity = updatedIdentity ? {
+                name: updatedIdentity.name,
+                creature: updatedIdentity.personality,
+                vibe: updatedIdentity.speakingStyle,
+                emoji: updatedIdentity.emoji,
+                voiceId: DEFAULT_VOICE_ID,
+                showDebug: updatedIdentity.showDebug,
+                bgmEnabled: updatedIdentity.bgmEnabled,
+            } : null;
         }
 
         // Update user profile

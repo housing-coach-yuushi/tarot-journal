@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
     deleteAIIdentity,
+    deleteUserAIIdentity,
     deleteUserProfile,
     clearConversationHistory,
     resolveCanonicalUserId,
@@ -17,10 +18,15 @@ export async function POST(request: NextRequest) {
             ? await resolveCanonicalUserId(normalizedUserId)
             : (forcedUserId || 'default');
 
-        // resetType: 'all' | 'ai' | 'user'
+        // resetType: 'all' | 'ai' | 'user' | 'global-ai'
         if (resetType === 'all' || resetType === 'ai') {
+            await deleteUserAIIdentity(userId);
+            console.log(`User AI identity deleted for ${userId}`);
+        }
+
+        if (resetType === 'global-ai') {
             await deleteAIIdentity();
-            console.log('AI identity deleted');
+            console.log('Global AI identity deleted');
         }
 
         if (resetType === 'all' || resetType === 'user') {
@@ -35,6 +41,8 @@ export async function POST(request: NextRequest) {
                 ? '全てリセットしました。目覚めの儀式から再開します。'
                 : resetType === 'ai'
                     ? 'AIのアイデンティティをリセットしました。'
+                    : resetType === 'global-ai'
+                        ? 'グローバルAIのアイデンティティをリセットしました。'
                     : 'ユーザー情報をリセットしました。',
         });
     } catch (error) {

@@ -9,12 +9,13 @@ import path from 'path';
 import {
     getAIIdentity,
     setAIIdentity,
+    getUserAIIdentity,
+    setUserAIIdentity,
     getUserProfile,
     setUserProfile,
     isBootstrapComplete as checkBootstrapComplete,
     isUserOnboarded as checkUserOnboarded,
     type AIIdentity,
-    type UserProfile,
 } from '@/lib/db/redis';
 
 export interface IdentityData {
@@ -54,8 +55,10 @@ export async function isUserOnboarded(userId: string): Promise<boolean> {
 }
 
 // Load identity data from Redis
-export async function loadIdentity(): Promise<IdentityData | null> {
-    const identity = await getAIIdentity();
+export async function loadIdentity(userId?: string): Promise<IdentityData | null> {
+    const identity = userId
+        ? (await getUserAIIdentity(userId)) || (await getAIIdentity())
+        : await getAIIdentity();
     if (!identity) return null;
 
     return {
@@ -81,11 +84,14 @@ export async function loadUser(userId: string = 'default'): Promise<UserData | n
 }
 
 // Save identity data to Redis
-export async function saveIdentity(identity: IdentityData): Promise<void> {
+export async function saveIdentity(identity: IdentityData, userId?: string): Promise<void> {
     const now = new Date().toISOString();
-    const existing = await getAIIdentity();
+    const [existingUser, existingGlobal] = userId
+        ? await Promise.all([getUserAIIdentity(userId), getAIIdentity()])
+        : [null, await getAIIdentity()];
+    const existing = existingUser || existingGlobal;
 
-    await setAIIdentity({
+    const nextIdentity: AIIdentity = {
         name: identity.name || existing?.name || 'ジョージ',
         personality: identity.creature || existing?.personality || 'ジャーナリング・パートナー',
         speakingStyle: identity.vibe || existing?.speakingStyle || '落ち着いた、親しみやすい',
@@ -95,7 +101,14 @@ export async function saveIdentity(identity: IdentityData): Promise<void> {
         bgmEnabled: identity.bgmEnabled ?? existing?.bgmEnabled ?? false,
         createdAt: existing?.createdAt || now,
         updatedAt: now,
-    });
+    };
+
+    if (userId) {
+        await setUserAIIdentity(userId, nextIdentity);
+        return;
+    }
+
+    await setAIIdentity(nextIdentity);
 }
 
 // Save user data to Redis
@@ -192,8 +205,8 @@ ${bootstrapTemplate ? `\n## 参考：BOOTSTRAP.md\n${bootstrapTemplate}` : ''}
 }
 
 // Get new user onboarding prompt (AI exists, but new user)
-export async function getNewUserSystemPrompt(): Promise<string> {
-    const identity = await loadIdentity();
+export async function getNewUserSystemPrompt(userId?: string): Promise<string> {
+    const identity = await loadIdentity(userId);
 
     // Load USER.md template for reference
     const userTemplatePath = path.join(process.cwd(), 'lib/clawdbot/templates/USER.md');
@@ -286,7 +299,7 @@ ${userTemplate ? `\n## 参考：ユーザープロファイルの項目\n${userT
 
 // Get regular system prompt (after bootstrap)
 export async function getRegularSystemPrompt(userId: string = 'default'): Promise<string> {
-    const identity = await loadIdentity();
+    const identity = await loadIdentity(userId);
     const user = await loadUser(userId);
 
     // Load Three Changes skill

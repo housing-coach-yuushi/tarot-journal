@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
         // Handle data saving (for bootstrap completion)
         if (saveData) {
             if (saveData.identity) {
-                await saveIdentity(saveData.identity);
+                await saveIdentity(saveData.identity, userId);
             }
             if (saveData.user) {
                 await saveUser(saveData.user, userId);
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
             systemPrompt = getBootstrapSystemPrompt();
         } else if (!userOnboarded) {
             // AI exists but this is a new user - do user onboarding
-            systemPrompt = await getNewUserSystemPrompt();
+            systemPrompt = await getNewUserSystemPrompt(userId);
         } else {
             // Both AI and user are set up - normal mode
             systemPrompt = await getRegularSystemPrompt(userId);
@@ -117,7 +117,9 @@ export async function POST(request: NextRequest) {
 
             // Save identity data if any identity field is present
             if (identityData.name || identityData.creature || identityData.vibe || identityData.emoji || identityData.voiceId) {
-                await saveIdentity(identityData);
+                // If global bootstrap is incomplete, this identity_data is the default "George" (global).
+                // After bootstrap is complete, identity_data from onboarding/customization is user-specific.
+                await saveIdentity(identityData, isBootstrapped ? userId : undefined);
                 console.log('Saved AI identity:', identityData);
             }
 
@@ -156,7 +158,7 @@ export async function POST(request: NextRequest) {
         await addMessage(userId, { role: 'assistant', content: response });
 
         // Get current state
-        const identity = await loadIdentity();
+        const identity = await loadIdentity(userId);
         const user = await loadUser(userId);
 
         console.log(`[API/CHAT] Response generated for ${userId}: "${response.substring(0, 20)}..."`);
@@ -192,7 +194,7 @@ export async function GET(request: NextRequest) {
 
         const isBootstrapped = await isBootstrapComplete();
         const userOnboarded = await isUserOnboarded(userId);
-        const identity = await loadIdentity();
+        const identity = await loadIdentity(userId);
         const user = await loadUser(userId);
         const history = includeHistory ? await getConversationHistory(userId, 20) : { messages: [] };
 

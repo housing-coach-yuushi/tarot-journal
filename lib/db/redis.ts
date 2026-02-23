@@ -24,6 +24,7 @@ const redis = new Redis({
 // Key prefixes for this app
 const PREFIX = 'tarot-journal:';
 const USER_ALIAS_PREFIX = `${PREFIX}user-alias:`;
+const USER_AI_PREFIX = `${PREFIX}user-ai:`;
 const FORCED_USER_ID = (process.env.FORCE_USER_ID || '').trim();
 
 function normalizeId(raw: string | null | undefined): string | null {
@@ -139,6 +140,36 @@ export async function updateAIIdentity(updates: Partial<AIIdentity>): Promise<AI
     return updated;
 }
 
+// Per-user AI Identity operations (user-specific George name/personality)
+export async function getUserAIIdentity(userId: string): Promise<AIIdentity | null> {
+    return redis.get<AIIdentity>(`${USER_AI_PREFIX}${userId}`);
+}
+
+export async function setUserAIIdentity(userId: string, identity: AIIdentity): Promise<void> {
+    await redis.set(`${USER_AI_PREFIX}${userId}`, identity);
+}
+
+export async function updateUserAIIdentity(userId: string, updates: Partial<AIIdentity>): Promise<AIIdentity | null> {
+    const current = await getUserAIIdentity(userId);
+    if (!current) return null;
+
+    const updated = {
+        ...current,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+    };
+    await setUserAIIdentity(userId, updated);
+    return updated;
+}
+
+export async function getResolvedAIIdentity(userId?: string | null): Promise<AIIdentity | null> {
+    if (userId) {
+        const userIdentity = await getUserAIIdentity(userId);
+        if (userIdentity) return userIdentity;
+    }
+    return getAIIdentity();
+}
+
 // User Profile operations
 export async function getUserProfile(userId: string): Promise<UserProfile | null> {
     return redis.get<UserProfile>(`${PREFIX}user:${userId}`);
@@ -223,6 +254,10 @@ export async function clearConversationHistory(userId: string): Promise<void> {
 // Delete AI identity (for reset)
 export async function deleteAIIdentity(): Promise<void> {
     await redis.del(`${PREFIX}ai-identity`);
+}
+
+export async function deleteUserAIIdentity(userId: string): Promise<void> {
+    await redis.del(`${USER_AI_PREFIX}${userId}`);
 }
 
 // Delete user profile (for reset)

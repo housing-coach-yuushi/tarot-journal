@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatWithClaude } from '@/lib/anthropic/client';
 import { updateJournal, getTodayDate } from '@/lib/journal/storage';
-import { getUserProfile, getAIIdentity, resolveCanonicalUserId } from '@/lib/db/redis';
+import { getUserProfile, getResolvedAIIdentity, resolveCanonicalUserId } from '@/lib/db/redis';
 
 export async function POST(request: NextRequest) {
     try {
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
         // Fetch names from DB
         const [userProfile, aiIdentity] = await Promise.all([
             getUserProfile(userId),
-            getAIIdentity(),
+            getResolvedAIIdentity(userId),
         ]);
         const userName = userProfile?.displayName || 'わたし';
         const aiName = aiIdentity?.name || 'ジョージ';

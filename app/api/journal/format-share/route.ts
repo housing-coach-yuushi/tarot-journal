@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatWithClaude } from '@/lib/anthropic/client';
-import { getUserProfile, getAIIdentity, resolveCanonicalUserId } from '@/lib/db/redis';
+import { getUserProfile, getResolvedAIIdentity, resolveCanonicalUserId } from '@/lib/db/redis';
 
 export async function POST(request: NextRequest) {
     try {
@@ -20,14 +20,14 @@ export async function POST(request: NextRequest) {
         // Fetch names from DB
         const [userProfile, aiIdentity] = await Promise.all([
             getUserProfile(userId),
-            getAIIdentity(),
+            getResolvedAIIdentity(userId),
         ]);
         const userName = userProfile?.displayName || 'わたし';
         const aiName = aiIdentity?.name || 'ジョージ';
 
         // Prepare conversation text
         const conversationText = messages
-            .map((m: any) => {
+            .map((m: { role?: string; content?: string; card?: { card?: { name?: string } } }) => {
                 if (m.role === 'tarot' && m.card) {
                     return `[タロット🎴] ${m.card.card?.name || 'カード'} - ${m.content}`;
                 }
