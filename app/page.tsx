@@ -257,8 +257,32 @@ export default function Home() {
       || message.id.startsWith('error-fallback-')
       || message.id.startsWith('onboarding-awake-')
       || message.id.startsWith('onboarding-user-')
+      || message.id.startsWith('radio-notice-')
     );
   }, []);
+
+  const notifyRadioReadyInChat = useCallback((title: string) => {
+    const safeTitle = (title || '今週のジョージラジオ').trim();
+    setRadioNotification(safeTitle);
+    pushNotice('success', 'ジョージラジオの準備ができました。');
+
+    const content = `ジョージラジオ「${safeTitle}」の準備ができたよ。下のラジオボタンから再生できます。`;
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last?.id?.startsWith('radio-notice-') && last.content === content) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          id: `radio-notice-${Date.now()}`,
+          role: 'assistant',
+          content,
+          timestamp: new Date(),
+        },
+      ];
+    });
+  }, [pushNotice]);
 
   const toHistoryPayload = useCallback((source: Message[]) => {
     return source
@@ -2213,7 +2237,7 @@ ${exportMessages.map(m => {
         userName={bootstrap.user?.name || bootstrap.user?.callName || ''}
         onGenerationComplete={(title) => {
           if (!showRadio) {
-            setRadioNotification(title);
+            notifyRadioReadyInChat(title);
           }
         }}
       />
