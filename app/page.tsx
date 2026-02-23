@@ -128,6 +128,7 @@ export default function Home() {
   const audioElementPrimedRef = useRef<boolean>(false);
   const touchActiveRef = useRef<boolean>(false);
   const isHoldingMicRef = useRef<boolean>(false);
+  const pendingMicReleaseRef = useRef<boolean>(false);
   const heldTranscriptRef = useRef<string>('');
   const turnPerfRef = useRef<TurnPerfTrace | null>(null);
   const turnPerfSeqRef = useRef<number>(0);
@@ -362,6 +363,18 @@ export default function Home() {
       pushNotice('info', '音声が短すぎます。もう少し長く話してください。', 4000);
     }
   }, [debugStatus, pushNotice]);
+
+  useEffect(() => {
+    if (!pendingMicReleaseRef.current) return;
+    if (debugStatus !== '録音中') return;
+    pendingMicReleaseRef.current = false;
+    // Give the stream a brief moment to receive audio after the socket opens.
+    window.setTimeout(() => {
+      if (!isHoldingMicRef.current) {
+        stopAndSend();
+      }
+    }, 180);
+  }, [debugStatus, stopAndSend]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1424,6 +1437,7 @@ ${exportMessages.map(m => {
     }
     if (isHoldingMicRef.current) return;
     log('押した');
+    pendingMicReleaseRef.current = false;
 
     if (!sttSupported) {
       pushNotice('error', 'このブラウザでは音声入力が使えません。', 5000);
@@ -1471,14 +1485,31 @@ ${exportMessages.map(m => {
     log('離した');
     isHoldingMicRef.current = false;
 
+    // First press often coincides with permission prompt / cold startup.
+    // If the stream is still initializing, defer the release until STT becomes ready.
+    if (debugStatus === 'マイク取得中' || debugStatus === '再接続中...') {
+      pendingMicReleaseRef.current = true;
+      log('STT準備中のため離し操作を保留');
+      return;
+    }
+
     // In native STT mode, stopAndSend dispatches the recognized text via onFinalResult.
     stopAndSend();
   };
 
   const handleMicCancel = (e: React.PointerEvent | React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
+    // Pointer cancel can fire during permission dialogs or startup on mobile browsers.
+    // Avoid treating that as a hard cancel before STT is fully ready.
+    if (debugStatus === 'マイク取得中' || debugStatus === '再接続中...') {
+      isHoldingMicRef.current = false;
+      pendingMicReleaseRef.current = true;
+      log('pointercancel(準備中) -> 離し保留');
+      return;
+    }
     if (!isListening) return;
     isHoldingMicRef.current = false;
+    pendingMicReleaseRef.current = false;
     heldTranscriptRef.current = '';
     cancel();
   };
