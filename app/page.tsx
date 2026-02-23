@@ -1159,6 +1159,7 @@ export default function Home() {
     log('要約中...');
 
     try {
+      const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
       const requestUserId = resolveUserId();
       const summaryMessages = toSummaryPayload(messages);
 
@@ -1177,27 +1178,33 @@ export default function Home() {
       );
       let usedFallbackSummary = true;
 
-      try {
-        const summarizeResponse = await fetchWithTimeout('/api/journal/summarize', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: summaryMessages,
-            userId: requestUserId,
-          }),
-        }, 20000);
+      // Android Chrome can fail blob downloads after long async work because the user activation is lost.
+      // Prefer fast fallback summary so the download starts immediately from the tap.
+      if (!isAndroid) {
+        try {
+          const summarizeResponse = await fetchWithTimeout('/api/journal/summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: summaryMessages,
+              userId: requestUserId,
+            }),
+          }, 20000);
 
-        if (summarizeResponse.ok) {
-          const summaryData = await summarizeResponse.json();
-          title = typeof summaryData?.title === 'string' && summaryData.title.trim() ? summaryData.title.trim() : title;
-          summary = typeof summaryData?.summary === 'string' && summaryData.summary.trim() ? summaryData.summary.trim() : summary;
-          usedFallbackSummary = false;
-          log('要約完了: ' + title);
-        } else {
-          log(`要約失敗: ${summarizeResponse.status}`);
+          if (summarizeResponse.ok) {
+            const summaryData = await summarizeResponse.json();
+            title = typeof summaryData?.title === 'string' && summaryData.title.trim() ? summaryData.title.trim() : title;
+            summary = typeof summaryData?.summary === 'string' && summaryData.summary.trim() ? summaryData.summary.trim() : summary;
+            usedFallbackSummary = false;
+            log('要約完了: ' + title);
+          } else {
+            log(`要約失敗: ${summarizeResponse.status}`);
+          }
+        } catch (error) {
+          log('要約フォールバック: ' + (error as Error).message);
         }
-      } catch (error) {
-        log('要約フォールバック: ' + (error as Error).message);
+      } else {
+        log('Android保存: 簡易要約で即ダウンロード');
       }
 
       const exportMessages = messages.slice(-Math.max(MAX_SUMMARY_MESSAGES, 60));
@@ -1230,7 +1237,7 @@ ${exportMessages.map(m => {
 }).join('\n\n---\n\n')}
 `;
 
-      const blob = new Blob([markdownContent], { type: 'text/markdown' });
+      const blob = new Blob([markdownContent], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1242,7 +1249,7 @@ ${exportMessages.map(m => {
       // Delay revoke to ensure download starts
       setTimeout(() => {
         URL.revokeObjectURL(url);
-      }, 1000);
+      }, isAndroid ? 60000 : 3000);
 
       log('ダウンロード完了');
       if (usedFallbackSummary) {
