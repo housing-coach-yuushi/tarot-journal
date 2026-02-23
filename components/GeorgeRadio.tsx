@@ -18,6 +18,7 @@ interface RadioSession {
     script: RadioLine[];
     isNew: boolean;
     createdAt: number;
+    audioUpdatedAt?: number;
 }
 
 interface GeorgeRadioProps {
@@ -65,6 +66,8 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const [isAudioReady, setIsAudioReady] = useState(false);
     const [currentTimeSec, setCurrentTimeSec] = useState(0);
     const [durationSec, setDurationSec] = useState(0);
+    const [isRefreshingAudio, setIsRefreshingAudio] = useState(false);
+    const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
 
     // Refs
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -72,6 +75,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const animationFrameRef = useRef<number | null>(null);
+    const audioRefreshAttemptedRef = useRef<string | null>(null);
 
     const eqBars = [0.35, 0.6, 0.45, 0.8, 0.5, 0.65, 0.42, 0.72];
     const coverImageUrl = '/icon-options/george_illustrative.png';
@@ -218,6 +222,8 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         setCurrentLineIndex(0);
         setIsAudioReady(false);
         setIsPlaying(false);
+        setError(null);
+        setAudioStatusMessage(null);
     };
 
     // Auto-load audio when session changes
@@ -245,11 +251,65 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
         return () => clearTimeout(playTimer);
     }, [currentSession?.id, currentSession?.audioUrl]);
 
+    useEffect(() => {
+        audioRefreshAttemptedRef.current = null;
+        setAudioStatusMessage(null);
+    }, [currentSession?.id]);
+
     const deleteSession = (sessionId: string) => {
         const updated = sessions.filter(s => s.id !== sessionId);
         setSessions(updated);
         saveSessions(updated);
     };
+
+    const updateSessionAudioUrl = useCallback((sessionId: string, audioUrl: string) => {
+        const updatedAt = Date.now();
+        setSessions(prev => {
+            const next = prev.map(session =>
+                session.id === sessionId ? { ...session, audioUrl, audioUpdatedAt: updatedAt } : session
+            );
+            saveSessions(next);
+            return next;
+        });
+
+        setCurrentSession(prev =>
+            prev && prev.id === sessionId ? { ...prev, audioUrl, audioUpdatedAt: updatedAt } : prev
+        );
+    }, []);
+
+    const refreshSessionAudio = useCallback(async (session: RadioSession) => {
+        if (!session.script?.length) {
+            throw new Error('ラジオ台本が見つからないため音声を更新できません。');
+        }
+
+        setIsRefreshingAudio(true);
+        setAudioStatusMessage('音声リンクを更新中...');
+        setError(null);
+
+        try {
+            const response = await fetch('/api/journal/radio', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId,
+                    userName,
+                    refreshAudioOnly: true,
+                    script: session.script,
+                }),
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data?.audioUrl) {
+                throw new Error(data?.error || '音声リンクの更新に失敗しました。');
+            }
+
+            updateSessionAudioUrl(session.id, data.audioUrl);
+            setAudioStatusMessage('音声リンクを更新しました。');
+            return data.audioUrl as string;
+        } finally {
+            setIsRefreshingAudio(false);
+        }
+    }, [updateSessionAudioUrl, userId, userName]);
 
     const togglePlay = async () => {
         if (!audioRef.current || !currentSession?.audioUrl) {
@@ -269,6 +329,34 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
             }
         }
     };
+
+    const handleRefreshCurrentAudio = useCallback(async (autoPlay: boolean = false) => {
+        if (!currentSession) return;
+
+        try {
+            const nextUrl = await refreshSessionAudio(currentSession);
+            const audio = audioRef.current;
+            if (!audio) return;
+
+            audio.pause();
+            audio.currentTime = 0;
+            audio.src = nextUrl;
+            audio.load();
+
+            if (autoPlay) {
+                setTimeout(async () => {
+                    try {
+                        await audio.play();
+                    } catch (err) {
+                        console.warn('Auto-play after audio refresh failed:', err);
+                    }
+                }, 250);
+            }
+        } catch (err: any) {
+            setAudioStatusMessage(null);
+            setError(err?.message || '音声リンクの更新に失敗しました。');
+        }
+    }, [currentSession, refreshSessionAudio]);
 
     const playFromStart = async () => {
         const audio = audioRef.current;
@@ -445,23 +533,47 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                             <LoadingUI progress={50} stage="analyzing" onClose={onClose} />
                         )}
                         {viewMode === 'player' && currentSession && (
-                            <PlayerUI
-                                session={currentSession}
-                                currentLineIndex={currentLineIndex}
-                                isPlaying={isPlaying}
-                                progress={progress}
-                                isAudioReady={isAudioReady}
-                                currentTimeSec={currentTimeSec}
-                                durationSec={durationSec}
-                                audioLevel={audioLevel}
-                                activeLine={activeLine}
-                                eqBars={eqBars}
-                                hostVisuals={hostVisuals}
-                                coverImageUrl={coverImageUrl}
-                                onTogglePlay={togglePlay}
-                                onPlayFromStart={playFromStart}
-                                onSeek={seekBy}
-                            />
+                            <div className="w-full space-y-3">
+                                {(error || audioStatusMessage) && (
+                                    <div className={`w-full max-w-5xl mx-auto rounded-2xl border px-4 py-3 text-sm flex items-center justify-between gap-3 ${
+                                        error
+                                            ? 'bg-red-500/10 border-red-300/30 text-red-100'
+                                            : 'bg-cyan-300/10 border-cyan-200/25 text-cyan-100'
+                                    }`}>
+                                        <span className="leading-snug">{error || audioStatusMessage}</span>
+                                        <button
+                                            onClick={() => handleRefreshCurrentAudio(true)}
+                                            disabled={isRefreshingAudio}
+                                            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                                                isRefreshingAudio
+                                                    ? 'border-white/10 text-white/40'
+                                                    : 'border-white/20 text-white/90 hover:bg-white/10'
+                                            }`}
+                                        >
+                                            {isRefreshingAudio ? '更新中...' : '音声を更新'}
+                                        </button>
+                                    </div>
+                                )}
+                                <PlayerUI
+                                    session={currentSession}
+                                    currentLineIndex={currentLineIndex}
+                                    isPlaying={isPlaying}
+                                    progress={progress}
+                                    isAudioReady={isAudioReady}
+                                    currentTimeSec={currentTimeSec}
+                                    durationSec={durationSec}
+                                    audioLevel={audioLevel}
+                                    activeLine={activeLine}
+                                    eqBars={eqBars}
+                                    hostVisuals={hostVisuals}
+                                    coverImageUrl={coverImageUrl}
+                                    isRefreshingAudio={isRefreshingAudio}
+                                    onTogglePlay={togglePlay}
+                                    onPlayFromStart={playFromStart}
+                                    onSeek={seekBy}
+                                    onRefreshAudio={() => handleRefreshCurrentAudio(false)}
+                                />
+                            </div>
                         )}
                     </div>
 
@@ -470,11 +582,16 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                         src={currentSession?.audioUrl || ''}
                         preload="auto"
                         playsInline
+                        crossOrigin="anonymous"
                         onLoadStart={() => {
                             setIsAudioReady(false);
                             setCurrentTimeSec(0);
+                            if (!isRefreshingAudio) setAudioStatusMessage('音声を読み込み中...');
                         }}
-                        onCanPlay={() => setIsAudioReady(true)}
+                        onCanPlay={() => {
+                            setIsAudioReady(true);
+                            setAudioStatusMessage(null);
+                        }}
                         onLoadedMetadata={() => {
                             const audio = audioRef.current;
                             if (!audio) return;
@@ -482,8 +599,12 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                                 setDurationSec(audio.duration);
                             }
                             setIsAudioReady(true);
+                            setAudioStatusMessage(null);
                         }}
-                        onLoadedData={() => setIsAudioReady(true)}
+                        onLoadedData={() => {
+                            setIsAudioReady(true);
+                            setAudioStatusMessage(null);
+                        }}
                         onEnded={() => {
                             setIsPlaying(false);
                             setCurrentTimeSec(durationSec);
@@ -492,7 +613,13 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                         onPause={() => setIsPlaying(false)}
                         onError={() => {
                             setIsPlaying(false);
-                            setError('音声の読み込みに失敗しました');
+                            if (currentSession && audioRefreshAttemptedRef.current !== currentSession.id) {
+                                audioRefreshAttemptedRef.current = currentSession.id;
+                                void handleRefreshCurrentAudio(true);
+                                return;
+                            }
+                            setAudioStatusMessage(null);
+                            setError('音声の読み込みに失敗しました。音声を更新してください。');
                         }}
                     />
 
@@ -766,9 +893,11 @@ function PlayerUI({
     eqBars,
     hostVisuals,
     coverImageUrl,
+    isRefreshingAudio,
     onTogglePlay,
     onPlayFromStart,
     onSeek,
+    onRefreshAudio,
 }: {
     session: RadioSession;
     currentLineIndex: number;
@@ -782,9 +911,11 @@ function PlayerUI({
     eqBars: number[];
     hostVisuals: { George: string; Aria: string };
     coverImageUrl: string;
+    isRefreshingAudio: boolean;
     onTogglePlay: () => void;
     onPlayFromStart: () => void;
     onSeek: (deltaSec: number) => void;
+    onRefreshAudio: () => void;
 }) {
     const formatTime = (totalSec: number) => {
         if (!Number.isFinite(totalSec) || totalSec < 0) return '0:00';
@@ -995,6 +1126,17 @@ function PlayerUI({
                             冒頭から再生
                         </button>
                         <button
+                            onClick={onRefreshAudio}
+                            disabled={isRefreshingAudio || !session.script?.length}
+                            className={`w-full py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors ${
+                                isRefreshingAudio || !session.script?.length
+                                    ? 'border-white/10 bg-white/5 text-white/40 cursor-not-allowed'
+                                    : 'border-cyan-200/25 bg-cyan-100/5 text-cyan-100 hover:bg-cyan-100/10'
+                            }`}
+                        >
+                            {isRefreshingAudio ? '音声リンクを更新中...' : '音声を更新（再取得）'}
+                        </button>
+                        <button
                             onClick={async () => {
                                 if (!session.audioUrl) return;
                                 try {
@@ -1030,7 +1172,7 @@ function PlayerUI({
                             <p className="text-[10px] tracking-[0.18em] uppercase font-semibold">Radio Console</p>
                         </div>
                         <p className="text-[11px] text-white/60 mt-1.5 leading-relaxed">
-                            音声が出ない場合は「放送を再生」をもう一度押してください。
+                            音声が出ない場合は自動で復旧を試し、必要なら「音声を更新」でリンクを再取得します。
                         </p>
                     </div>
                 </section>

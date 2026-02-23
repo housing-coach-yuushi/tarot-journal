@@ -8,15 +8,88 @@ const CACHE_PREFIX = 'tarot-journal:radio-cache:';
 const RADIO_CACHE_TTL_SEC = 60 * 60 * 24 * 3; // 3 days
 const DEFAULT_COVER_IMAGE_URL = '/icon-options/george_illustrative.png';
 
+type RadioLine = { speaker: string; text: string };
+type CachedRadio = {
+    script: { title: string; subtitle?: string; lines: RadioLine[] };
+    audioUrl: string;
+    journalIds: string;
+    startDate: string;
+    endDate: string;
+};
+
+function normalizeScriptLines(input: unknown): RadioLine[] {
+    if (!Array.isArray(input)) return [];
+    return input
+        .map((line) => {
+            if (!line || typeof line !== 'object') return null;
+            const speaker = typeof (line as { speaker?: unknown }).speaker === 'string'
+                ? (line as { speaker: string }).speaker.trim()
+                : '';
+            const text = typeof (line as { text?: unknown }).text === 'string'
+                ? (line as { text: string }).text.trim()
+                : '';
+            if (!speaker || !text) return null;
+            return { speaker, text };
+        })
+        .filter((line): line is RadioLine => !!line);
+}
+
+async function isPlayableAudioUrl(url: string): Promise<boolean> {
+    if (!url) return false;
+    const timeout = 5000;
+
+    const tryRequest = async (method: 'HEAD' | 'GET') => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
+        try {
+            const response = await fetch(url, {
+                method,
+                signal: controller.signal,
+                cache: 'no-store',
+                headers: method === 'GET' ? { Range: 'bytes=0-1' } : undefined,
+            });
+            return response.ok || response.status === 206;
+        } catch {
+            return false;
+        } finally {
+            clearTimeout(timer);
+        }
+    };
+
+    const headOk = await tryRequest('HEAD');
+    if (headOk) return true;
+    return tryRequest('GET');
+}
+
 export async function POST(req: NextRequest) {
     try {
-        const { userId: rawUserId, userName: providedName, force } = await req.json();
+        const {
+            userId: rawUserId,
+            userName: providedName,
+            force,
+            refreshAudioOnly,
+            script: refreshScript,
+        } = await req.json();
         const forceRegenerate = force === true || force === 'true';
 
         if (!rawUserId || typeof rawUserId !== 'string' || !rawUserId.trim()) {
             return NextResponse.json({ error: 'UserId is required' }, { status: 400 });
         }
         const userId = await resolveCanonicalUserId(rawUserId.trim());
+        const client = getKieApiClient();
+
+        if (refreshAudioOnly === true || refreshAudioOnly === 'true') {
+            const scriptLines = normalizeScriptLines(refreshScript);
+            if (scriptLines.length === 0) {
+                return NextResponse.json({ error: '有効なスクリプトがありません。' }, { status: 400 });
+            }
+            const audioUrl = await client.generateDialogue(scriptLines);
+            return NextResponse.json({
+                success: true,
+                audioUrl,
+                refreshed: true,
+            });
+        }
 
         // Fetch real user name from profile if available
         const profile = await getUserProfile(userId);
@@ -40,15 +113,21 @@ export async function POST(req: NextRequest) {
         // 3. Check Cache
         const journalIds = journals.map(j => j.id).sort().join(',');
         const cacheKey = `${CACHE_PREFIX}${userId}`;
-        const cached = await redis.get<{ script: any, audioUrl: string, journalIds: string, startDate: string, endDate: string }>(cacheKey);
+        const cached = await redis.get<CachedRadio>(cacheKey);
 
         if (!forceRegenerate && cached && cached.journalIds === journalIds) {
+            let audioUrl = cached.audioUrl;
+            if (!(await isPlayableAudioUrl(audioUrl)) && cached.script?.lines?.length) {
+                audioUrl = await client.generateDialogue(cached.script.lines);
+                await redis.set(cacheKey, { ...cached, audioUrl });
+                await redis.expire(cacheKey, RADIO_CACHE_TTL_SEC);
+            }
             return NextResponse.json({
                 success: true,
                 title: cached.script.title,
                 subtitle: cached.script.subtitle,
                 script: cached.script.lines,
-                audioUrl: cached.audioUrl,
+                audioUrl,
                 coverImageUrl: DEFAULT_COVER_IMAGE_URL,
                 startDate: cached.startDate || startDate,
                 endDate: cached.endDate || endDate,
@@ -60,7 +139,6 @@ export async function POST(req: NextRequest) {
         const script = await generateWeeklyRadioScript(userId, userName || 'お客様', journals);
 
         // 5. Generate Audio via Kie AI
-        const client = getKieApiClient();
         const audioUrl = await client.generateDialogue(script.lines);
 
         // 6. Save to Cache
@@ -78,10 +156,10 @@ export async function POST(req: NextRequest) {
             endDate,
             isNew: true,
         });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Radio Generation Error:', error);
         return NextResponse.json({
-            error: error.message || 'ラジオの生成に失敗しました。'
+            error: error instanceof Error ? error.message : 'ラジオの生成に失敗しました。'
         }, { status: 500 });
     }
 }
