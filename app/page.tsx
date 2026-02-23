@@ -1262,25 +1262,75 @@ ${exportMessages.map(m => {
 }).join('\n\n---\n\n')}
 `;
 
+      const filename = `${dateStr}-${timeStr}.md`;
       const blob = new Blob([markdownContent], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${dateStr}-${timeStr}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
 
-      // Delay revoke to ensure download starts
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-      }, isAndroid ? 60000 : 3000);
+      // Android: file-share is often more reliable than synthetic blob download.
+      if (isAndroid) {
+        let androidHandled = false;
 
-      log('ダウンロード完了');
-      if (usedFallbackSummary) {
-        pushNotice('info', '簡易要約でジャーナルをダウンロードしました。');
+        try {
+          if (typeof File !== 'undefined' && navigator.share) {
+            const file = new File([blob], filename, { type: 'text/plain' });
+            const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
+            const shareData: ShareData = { files: [file], title };
+            if (!nav.canShare || nav.canShare(shareData)) {
+              await navigator.share(shareData);
+              androidHandled = true;
+              log('Android保存: ファイル共有メニューを表示');
+              pushNotice('success', '保存/共有メニューを開きました。');
+            }
+          }
+        } catch (shareError) {
+          if ((shareError as Error).name !== 'AbortError') {
+            log('Android保存 share失敗: ' + (shareError as Error).message);
+          }
+        }
+
+        if (!androidHandled) {
+          try {
+            await navigator.clipboard.writeText(markdownContent);
+            androidHandled = true;
+            log('Android保存: Markdownをクリップボードにコピー');
+            pushNotice('info', '保存に失敗しやすい端末のため、Markdownをクリップボードにコピーしました。');
+          } catch (clipError) {
+            log('Android保存 clipboard失敗: ' + (clipError as Error).message);
+          }
+        }
+
+        if (!androidHandled) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.target = '_blank';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          log('Android保存: blobダウンロードを試行');
+          pushNotice('info', 'ダウンロードを開始しました。');
+        }
       } else {
-        pushNotice('success', 'ジャーナルをダウンロードしました。');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        // Delay revoke to ensure download starts
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+        }, 3000);
+
+        log('ダウンロード完了');
+        if (usedFallbackSummary) {
+          pushNotice('info', '簡易要約でジャーナルをダウンロードしました。');
+        } else {
+          pushNotice('success', 'ジャーナルをダウンロードしました。');
+        }
       }
     } catch (error) {
       log('保存エラー: ' + (error as Error).message);
