@@ -928,6 +928,64 @@ function PlayerUI({
         return `${minutes}:${String(remain).padStart(2, '0')}`;
     };
 
+    const downloadAudio = async () => {
+        if (!session.audioUrl) return;
+
+        const filename = `${(session.title || 'radio').replace(/[\\/:*?"<>|]/g, '_')}.mp3`;
+        const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+        const isAndroid = /Android/i.test(ua);
+
+        const openDirectUrl = () => {
+            const a = document.createElement('a');
+            a.href = session.audioUrl;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        };
+
+        try {
+            const response = await fetch(session.audioUrl, { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            const audioBlob = blob.type ? blob : new Blob([blob], { type: 'audio/mpeg' });
+
+            if (isAndroid && typeof File !== 'undefined' && navigator.share) {
+                const file = new File([audioBlob], filename, { type: audioBlob.type || 'audio/mpeg' });
+                const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
+                const shareData: ShareData = { files: [file], title: session.title || 'George Radio' };
+                if (!nav.canShare || nav.canShare(shareData)) {
+                    try {
+                        await navigator.share(shareData);
+                        return;
+                    } catch (shareError) {
+                        if ((shareError as Error).name === 'AbortError') return;
+                    }
+                }
+            }
+
+            const url = URL.createObjectURL(audioBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            window.setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, isAndroid ? 60000 : 5000);
+        } catch (err) {
+            console.error('Radio audio download failed, fallback to direct URL:', err);
+            openDirectUrl();
+        }
+    };
+
     return (
         <motion.div
             initial={{ y: 20, opacity: 0 }}
@@ -1140,23 +1198,7 @@ function PlayerUI({
                             {isRefreshingAudio ? '音声リンクを更新中...' : '音声を更新（再取得）'}
                         </button>
                         <button
-                            onClick={async () => {
-                                if (!session.audioUrl) return;
-                                try {
-                                    const response = await fetch(session.audioUrl);
-                                    const blob = await response.blob();
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = `${session.title || 'radio'}.mp3`;
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    document.body.removeChild(a);
-                                    URL.revokeObjectURL(url);
-                                } catch (err) {
-                                    console.error('Download failed:', err);
-                                }
-                            }}
+                            onClick={downloadAudio}
                             disabled={!session.audioUrl}
                             className={`w-full py-2.5 rounded-xl text-sm font-semibold tracking-wide border transition-colors flex items-center justify-center gap-2 ${
                                 session.audioUrl
