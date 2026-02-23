@@ -219,6 +219,34 @@ class KieApiClient {
     }
 
     /**
+     * Generic image generation (task API) for app covers/thumbnails.
+     * Model is configurable because KIE's market models change frequently.
+     */
+    async generateImage(
+        prompt: string,
+        options?: {
+            model?: string;
+            aspectRatio?: '1:1' | '9:16' | '16:9' | '3:2' | '2:3';
+            mode?: string;
+        }
+    ): Promise<string> {
+        const model = options?.model || process.env.KEIAPI_IMAGE_MODEL || 'grok-imagine/text-to-image';
+        const input: Record<string, unknown> = {
+            prompt,
+            aspect_ratio: options?.aspectRatio || '1:1',
+        };
+
+        if (options?.mode) {
+            input.mode = options.mode;
+        } else if (model.startsWith('grok-imagine/')) {
+            // Grok Imagine typically supports mode selectors.
+            input.mode = 'normal';
+        }
+
+        return this.createTaskAndWait(model, input, 180000);
+    }
+
+    /**
      * Speech-to-Text using Kie.ai task API.
      * Supports both audio_url (data URL) and audio (base64) inputs.
      */

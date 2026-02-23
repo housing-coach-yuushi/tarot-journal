@@ -15,6 +15,7 @@ interface RadioSession {
     subtitle: string;
     dateRange: string;
     audioUrl: string;
+    coverImageUrl?: string;
     script: RadioLine[];
     isNew: boolean;
     createdAt: number;
@@ -78,7 +79,8 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
     const audioRefreshAttemptedRef = useRef<string | null>(null);
 
     const eqBars = [0.35, 0.6, 0.45, 0.8, 0.5, 0.65, 0.42, 0.72];
-    const coverImageUrl = '/icon-options/george_illustrative.png';
+    const defaultCoverImageUrl = '/icon-options/george_illustrative.png';
+    const activeCoverImageUrl = currentSession?.coverImageUrl || defaultCoverImageUrl;
     const hostVisuals = {
         George: '/icon-options/mystic_gold_mic_v2.png',
         Aria: '/icon-options/apple_voice_tarot.png',
@@ -191,6 +193,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                 subtitle: data.subtitle || RADIO_CONSTANTS.DEFAULT_SUBTITLE,
                 dateRange,
                 audioUrl: data.audioUrl,
+                coverImageUrl: data.coverImageUrl || defaultCoverImageUrl,
                 script: data.script,
                 isNew: data.isNew,
                 createdAt: Date.now(),
@@ -468,7 +471,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                     <div
                         className="absolute inset-0 pointer-events-none opacity-25"
                         style={{
-                            backgroundImage: `url(${coverImageUrl})`,
+                            backgroundImage: `url(${activeCoverImageUrl})`,
                             backgroundSize: 'cover',
                             backgroundPosition: 'center',
                             filter: 'blur(6px) saturate(110%)',
@@ -566,7 +569,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
                                     activeLine={activeLine}
                                     eqBars={eqBars}
                                     hostVisuals={hostVisuals}
-                                    coverImageUrl={coverImageUrl}
+                                    coverImageUrl={activeCoverImageUrl}
                                     isRefreshingAudio={isRefreshingAudio}
                                     onTogglePlay={togglePlay}
                                     onPlayFromStart={playFromStart}

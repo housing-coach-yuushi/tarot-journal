@@ -7,11 +7,13 @@ import { getKieApiClient } from '@/lib/keiapi/client';
 const CACHE_PREFIX = 'tarot-journal:radio-cache:';
 const RADIO_CACHE_TTL_SEC = 60 * 60 * 24 * 3; // 3 days
 const DEFAULT_COVER_IMAGE_URL = '/icon-options/george_illustrative.png';
+const RADIO_COVER_ENABLED = (process.env.KEIAPI_RADIO_COVER_ENABLED || '1').trim() !== '0';
 
 type RadioLine = { speaker: string; text: string };
 type CachedRadio = {
     script: { title: string; subtitle?: string; lines: RadioLine[] };
     audioUrl: string;
+    coverImageUrl?: string;
     journalIds: string;
     startDate: string;
     endDate: string;
@@ -32,6 +34,52 @@ function normalizeScriptLines(input: unknown): RadioLine[] {
             return { speaker, text };
         })
         .filter((line): line is RadioLine => !!line);
+}
+
+function buildRadioCoverPrompt(params: {
+    title: string;
+    subtitle?: string;
+    userName?: string;
+    scriptLines: RadioLine[];
+}): string {
+    const topics = params.scriptLines
+        .slice(0, 6)
+        .map((line) => line.text.replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .join(' / ')
+        .slice(0, 400);
+
+    return [
+        'Premium square podcast cover art for a Japanese reflective weekly radio show.',
+        'Cinematic, elegant, calm, luminous, tarot-journal mood, premium editorial design.',
+        'No readable text, no letters, no logos, no watermarks.',
+        'Deep navy background, soft cyan and gold glow, subtle mystical symbols, radio studio atmosphere.',
+        `Theme title reference: ${params.title}`,
+        params.subtitle ? `Subtitle reference: ${params.subtitle}` : '',
+        params.userName ? `User mood reference: ${params.userName}'s weekly reflection` : '',
+        topics ? `Conversation themes: ${topics}` : '',
+    ].filter(Boolean).join(' ');
+}
+
+async function generateRadioCoverImage(
+    client: ReturnType<typeof getKieApiClient>,
+    script: { title: string; subtitle?: string; lines: RadioLine[] },
+    userName?: string
+): Promise<string> {
+    if (!RADIO_COVER_ENABLED) return DEFAULT_COVER_IMAGE_URL;
+    const prompt = buildRadioCoverPrompt({
+        title: script.title,
+        subtitle: script.subtitle,
+        userName,
+        scriptLines: script.lines,
+    });
+    try {
+        const url = await client.generateImage(prompt, { aspectRatio: '1:1' });
+        return typeof url === 'string' && url.trim() ? url : DEFAULT_COVER_IMAGE_URL;
+    } catch (error) {
+        console.warn('Radio cover generation failed, fallback to default cover:', error);
+        return DEFAULT_COVER_IMAGE_URL;
+    }
 }
 
 async function isPlayableAudioUrl(url: string): Promise<boolean> {
@@ -122,13 +170,14 @@ export async function POST(req: NextRequest) {
                 await redis.set(cacheKey, { ...cached, audioUrl });
                 await redis.expire(cacheKey, RADIO_CACHE_TTL_SEC);
             }
+            const coverImageUrl = cached.coverImageUrl || DEFAULT_COVER_IMAGE_URL;
             return NextResponse.json({
                 success: true,
                 title: cached.script.title,
                 subtitle: cached.script.subtitle,
                 script: cached.script.lines,
                 audioUrl,
-                coverImageUrl: DEFAULT_COVER_IMAGE_URL,
+                coverImageUrl,
                 startDate: cached.startDate || startDate,
                 endDate: cached.endDate || endDate,
                 isNew: false,
@@ -140,9 +189,10 @@ export async function POST(req: NextRequest) {
 
         // 5. Generate Audio via Kie AI
         const audioUrl = await client.generateDialogue(script.lines);
+        const coverImageUrl = await generateRadioCoverImage(client, script, userName);
 
         // 6. Save to Cache
-        await redis.set(cacheKey, { script, audioUrl, journalIds, startDate, endDate });
+        await redis.set(cacheKey, { script, audioUrl, coverImageUrl, journalIds, startDate, endDate });
         await redis.expire(cacheKey, RADIO_CACHE_TTL_SEC);
 
         return NextResponse.json({
@@ -151,7 +201,7 @@ export async function POST(req: NextRequest) {
             subtitle: script.subtitle,
             script: script.lines,
             audioUrl: audioUrl,
-            coverImageUrl: DEFAULT_COVER_IMAGE_URL,
+            coverImageUrl,
             startDate,
             endDate,
             isNew: true,
