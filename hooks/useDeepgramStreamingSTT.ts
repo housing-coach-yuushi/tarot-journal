@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 interface UseDeepgramStreamingSTTOptions {
   lang?: string;
@@ -31,6 +31,7 @@ const WS_OPEN_TIMEOUT_MS = 30000;
 // Push-to-talk journaling can be long. Keep retrying while the button is held.
 const MAX_UNEXPECTED_CLOSE_RETRIES = 999;
 const RELAY_WS_URL = (process.env.NEXT_PUBLIC_STT_RELAY_WS_URL || '').trim();
+const subscribeNoop = () => () => {};
 
 function getAudioContextCtor(): typeof AudioContext | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -76,6 +77,17 @@ function concatTranscript(finalText: string, interimText: string): string {
   return `${finalText} ${interimText}`.replace(/\s+/g, ' ').trim();
 }
 
+function detectSttSupport(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  return Boolean(
+    typeof window.WebSocket !== 'undefined' &&
+    getAudioContextCtor() &&
+    navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === 'function'
+  );
+}
+
 export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions = {}) {
   const { lang = 'ja-JP', onFinalResult, onEnd, onError } = options;
 
@@ -85,13 +97,7 @@ export function useDeepgramStreamingSTT(options: UseDeepgramStreamingSTTOptions 
   const [interimTranscript, setInterimTranscript] = useState('');
   const [inputLevel, setInputLevel] = useState(0);
   const [debugStatus, setDebugStatus] = useState('init');
-  const [isSupported] = useState(() => !!(
-    typeof window !== 'undefined' &&
-    typeof window.WebSocket !== 'undefined' &&
-    getAudioContextCtor() &&
-    navigator.mediaDevices &&
-    typeof navigator.mediaDevices.getUserMedia === 'function'
-  ));
+  const isSupported = useSyncExternalStore(subscribeNoop, detectSttSupport, () => false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);

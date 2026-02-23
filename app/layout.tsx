@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Noto_Serif_JP } from "next/font/google";
 import "./globals.css";
 
@@ -22,7 +22,6 @@ export const metadata: Metadata = {
   title: "George Tarot Journal",
   description: "A daily tarot journaling companion",
   manifest: "/manifest.webmanifest",
-  themeColor: "#000000",
   icons: {
     icon: [
       { url: "/icon-192-v2.png", sizes: "192x192", type: "image/png" },
@@ -39,13 +38,15 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "George",
   },
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-    viewportFit: "cover",
-  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#000000",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

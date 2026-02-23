@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import { Mic, MessageSquare, Send, ChevronDown, Volume2, VolumeX, Loader2, Download, RotateCcw, Settings, Share2 } from 'lucide-react';
@@ -63,6 +63,11 @@ interface TurnPerfTrace {
 }
 
 const CHECKIN_TTS_SESSION_KEY = 'tarot-journal:checkin-tts-handled';
+const subscribeNoop = () => () => {};
+
+function getPointerEventsSupport(): boolean {
+  return typeof window !== 'undefined' && 'PointerEvent' in window;
+}
 
 // Generate or retrieve unique user ID
 function getUserId(): string {
@@ -79,7 +84,7 @@ function getUserId(): string {
 
 export default function Home() {
   const prefersReducedMotion = useReducedMotion();
-  const supportsPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window;
+  const supportsPointerEvents = useSyncExternalStore(subscribeNoop, getPointerEventsSupport, () => false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(true);
