@@ -1166,8 +1166,9 @@ export default function Home() {
       // Step 2: Download as markdown file
       const dateStr = new Date().toISOString().split('T')[0];
       const timeStr = new Date().toTimeString().split(' ')[0].replace(/:/g, '-');
-      const userName = bootstrap.user?.callName || bootstrap.user?.name || 'わたし';
-      const aiName = bootstrap.identity?.name || 'ジョージ';
+      const useNamedSpeakers = bootstrap.isBootstrapped === true && bootstrap.userOnboarded === true;
+      const userName = useNamedSpeakers ? (bootstrap.user?.callName || bootstrap.user?.name || 'わたし') : 'わたし';
+      const aiName = useNamedSpeakers ? (bootstrap.identity?.name || 'ジョージ') : 'ジョージ';
       let title = `${dateStr}のジャーナル`;
       let summary = truncateContent(
         summaryMessages
