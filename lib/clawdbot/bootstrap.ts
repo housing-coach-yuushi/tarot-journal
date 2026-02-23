@@ -86,10 +86,10 @@ export async function saveIdentity(identity: IdentityData): Promise<void> {
     const existing = await getAIIdentity();
 
     await setAIIdentity({
-        name: identity.name || '',
-        personality: identity.creature || 'ジャーナリング・パートナー',
-        speakingStyle: identity.vibe || '落ち着いた、親しみやすい',
-        emoji: identity.emoji || '✍️',
+        name: identity.name || existing?.name || 'ジョージ',
+        personality: identity.creature || existing?.personality || 'ジャーナリング・パートナー',
+        speakingStyle: identity.vibe || existing?.speakingStyle || '落ち着いた、親しみやすい',
+        emoji: identity.emoji || existing?.emoji || '✍️',
         voiceId: identity.voiceId || existing?.voiceId,
         showDebug: identity.showDebug ?? existing?.showDebug ?? false,
         bgmEnabled: identity.bgmEnabled ?? existing?.bgmEnabled ?? false,
@@ -221,6 +221,16 @@ export async function getNewUserSystemPrompt(): Promise<string> {
 1. まず自己紹介をする（名前と、自分が何者か）
 2. 相手の名前を聞く
 3. どう呼んでほしいか聞く（名前そのまま？ニックネーム？）
+4. 必要なら、あなた自身の呼び名（例: ジョージのまま / 別名）や性格・雰囲気の希望も聞く
+
+## 今回のオンボードで決めてよいこと（任意）
+- ユーザーの名前 / 呼び方（必須）
+- あなたの名前（初期値は「ジョージ」）
+- あなたの性質（例: ジャーナリング・パートナー / 伴走者 / 兄貴分）
+- あなたの雰囲気（例: 落ち着いた / フレンドリー / 率直）
+
+相手が希望を言ったら、自然に会話しながら反映してよい。
+「ジョージのままでいい」と言われたら、そのまま使う。
 
 ## 最初の挨拶例
 「やあ、初めまして。俺は${identity?.name || 'ジョージ'}。
@@ -241,10 +251,28 @@ name: 太郎
 callName: 太郎くん
 \`\`\`
 
+## あなたの設定変更を受け取ったときの記録（任意）
+相手があなたの名前や性格を変えたいと言ったら、応答の最後に以下も記録してください：
+\`\`\`identity_data
+name: [あなたの名前。変更なしなら現在名]
+creature: [性質]
+vibe: [雰囲気]
+emoji: [絵文字。未指定なら現在値]
+\`\`\`
+
+例：
+\`\`\`identity_data
+name: ジョージ
+creature: ジャーナリング・パートナー
+vibe: 落ち着いていて率直、でもやさしい
+emoji: ✍️
+\`\`\`
+
 ## 重要なルール
 - 堅苦しくならない。自然に会話する
 - 日本語で話す
 - 相手の名前を聞いたら、すぐにその名前で呼び始める
+- 相手があなたの呼び名や性格を決めたい場合は、1〜2問で決める（長引かせない）
 - 尋問しない。ただ話す。
 - 相手が言葉を探している時間を尊重し、焦って結論に誘導しない。
 - **操作ガイド**: 

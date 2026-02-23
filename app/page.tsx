@@ -856,7 +856,7 @@ export default function Home() {
         {
           id: `onboarding-user-guide-${Date.now()}`,
           role: 'assistant',
-          content: 'どう呼ばれたいかも一緒に教えてくれると助かる。マイクでもチャットでもOK。',
+          content: 'どう呼ばれたいかに加えて、ジョージの名前や性格の希望があれば最初に一緒に決められる。マイクでもチャットでもOK。',
           timestamp: new Date(),
         },
       ];

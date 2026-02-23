@@ -115,8 +115,8 @@ export async function POST(request: NextRequest) {
                 }
             }
 
-            // Save identity data if we got a name
-            if (identityData.name) {
+            // Save identity data if any identity field is present
+            if (identityData.name || identityData.creature || identityData.vibe || identityData.emoji || identityData.voiceId) {
                 await saveIdentity(identityData);
                 console.log('Saved AI identity:', identityData);
             }
