@@ -49,6 +49,9 @@ export interface AIIdentity {
 export interface UserProfile {
     userId: string;
     displayName: string;
+    focusTheme?: string;
+    futureWish?: string;
+    nonNegotiables?: string;
     createdAt: string;
     updatedAt: string;
 }

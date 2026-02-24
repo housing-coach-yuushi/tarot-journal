@@ -582,7 +582,7 @@ export default function GeorgeRadio({ isOpen, onClose, userId, userName, onGener
 
                     <audio
                         ref={audioRef}
-                        src={currentSession?.audioUrl || ''}
+                        src={currentSession?.audioUrl || undefined}
                         preload="auto"
                         playsInline
                         crossOrigin="anonymous"

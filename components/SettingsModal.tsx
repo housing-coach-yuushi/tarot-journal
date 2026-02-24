@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Save, Volume2, User, Bot, Bug } from 'lucide-react';
+import { X, Save, Volume2, User, Bot, Bug, Compass, Sparkles, ShieldCheck } from 'lucide-react';
 
 interface VoiceOption {
     id: string;
@@ -23,6 +23,9 @@ interface SettingsModalProps {
     onSave: (settings: {
         aiName?: string;
         userName?: string;
+        focusTheme?: string;
+        futureWish?: string;
+        nonNegotiables?: string;
         voiceId?: string;
         showDebug?: boolean;
         bgmEnabled?: boolean;
@@ -42,6 +45,9 @@ export default function SettingsModal({
 }: SettingsModalProps) {
     const [aiName, setAiName] = useState(currentAiName);
     const [userName, setUserName] = useState(currentUserName);
+    const [focusTheme, setFocusTheme] = useState('');
+    const [futureWish, setFutureWish] = useState('');
+    const [nonNegotiables, setNonNegotiables] = useState('');
     const [voiceId, setVoiceId] = useState(currentVoiceId);
     const [showDebug, setShowDebug] = useState(currentShowDebug);
     const [bgmEnabled, setBgmEnabled] = useState(currentBgmEnabled);
@@ -57,7 +63,8 @@ export default function SettingsModal({
     // Fetch available voices on mount
     useEffect(() => {
         if (isOpen) {
-            fetch(`/api/settings?userId=${userId}`)
+            const ts = Date.now();
+            fetch(`/api/settings?userId=${encodeURIComponent(userId)}&_ts=${ts}`, { cache: 'no-store' })
                 .then(res => res.json())
                 .then(data => {
                     if (data.availableVoices) {
@@ -67,6 +74,9 @@ export default function SettingsModal({
                     if (data.identity?.voiceId) setVoiceId(data.identity.voiceId);
                     if (data.identity?.bgmEnabled !== undefined) setBgmEnabled(data.identity.bgmEnabled);
                     if (data.user?.displayName) setUserName(data.user.displayName);
+                    setFocusTheme(typeof data.user?.focusTheme === 'string' ? data.user.focusTheme : '');
+                    setFutureWish(typeof data.user?.futureWish === 'string' ? data.user.futureWish : '');
+                    setNonNegotiables(typeof data.user?.nonNegotiables === 'string' ? data.user.nonNegotiables : '');
                 })
                 .catch(err => {
                     console.error('Failed to fetch settings:', err);
@@ -87,6 +97,9 @@ export default function SettingsModal({
                     userId,
                     aiName: aiName || undefined,
                     userName: userName || undefined,
+                    focusTheme: focusTheme || undefined,
+                    futureWish: futureWish || undefined,
+                    nonNegotiables: nonNegotiables || undefined,
                     voiceId: voiceId || undefined,
                     showDebug: showDebug,
                     bgmEnabled: bgmEnabled,
@@ -98,7 +111,7 @@ export default function SettingsModal({
                 throw new Error(data.error || '保存に失敗しました');
             }
 
-            onSave({ aiName, userName, voiceId, showDebug, bgmEnabled });
+            onSave({ aiName, userName, focusTheme, futureWish, nonNegotiables, voiceId, showDebug, bgmEnabled });
             onClose();
         } catch (err) {
             setError(err instanceof Error ? err.message : '保存に失敗しました');
@@ -122,7 +135,7 @@ export default function SettingsModal({
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0.9, opacity: 0 }}
                         onClick={(e) => e.stopPropagation()}
-                        className="bg-gray-900 border border-white/20 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+                        className="bg-gray-900 border border-white/20 rounded-2xl p-6 w-full max-w-md max-h-[85vh] overflow-y-auto shadow-2xl"
                     >
                         {/* Header */}
                         <div className="flex items-center justify-between mb-6">
@@ -172,6 +185,54 @@ export default function SettingsModal({
                                     placeholder="例: ゆうさん"
                                     className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500 transition-colors"
                                 />
+                            </div>
+
+                            {/* Focus Theme */}
+                            <div>
+                                <label className="flex items-center gap-2 text-sm font-medium text-white/80 mb-2">
+                                    <Compass size={16} />
+                                    今のテーマ（任意）
+                                </label>
+                                <input
+                                    type="text"
+                                    value={focusTheme}
+                                    onChange={(e) => setFocusTheme(e.target.value)}
+                                    placeholder="例: 仕事 / 恋愛 / 試験 / 健康"
+                                    className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500 transition-colors"
+                                />
+                            </div>
+
+                            {/* Future Wish */}
+                            <div>
+                                <label className="flex items-center gap-2 text-sm font-medium text-white/80 mb-2">
+                                    <Sparkles size={16} />
+                                    こうなったらいいな（任意）
+                                </label>
+                                <textarea
+                                    value={futureWish}
+                                    onChange={(e) => setFutureWish(e.target.value)}
+                                    rows={3}
+                                    placeholder="例: 焦りすぎず、毎日少しずつ前に進める状態になりたい"
+                                    className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500 transition-colors resize-y"
+                                />
+                            </div>
+
+                            {/* Non-Negotiables */}
+                            <div>
+                                <label className="flex items-center gap-2 text-sm font-medium text-white/80 mb-2">
+                                    <ShieldCheck size={16} />
+                                    譲れない基準（任意）
+                                </label>
+                                <textarea
+                                    value={nonNegotiables}
+                                    onChange={(e) => setNonNegotiables(e.target.value)}
+                                    rows={4}
+                                    placeholder={'例:\n- 睡眠を削りすぎない\n- 嘘をつかない\n- 相手を雑に扱わない'}
+                                    className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-purple-500 transition-colors resize-y"
+                                />
+                                <p className="mt-2 text-xs text-white/45">
+                                    箇条書きでも1文でもOK。まだ決まっていなければ空欄で大丈夫です。
+                                </p>
                             </div>
 
                             {/* Voice Selection */}

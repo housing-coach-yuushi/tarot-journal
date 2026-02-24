@@ -129,6 +129,7 @@ export default function Home() {
   const checkinTtsRetryTimerRef = useRef<number | null>(null);
   const checkinTtsAttemptedMessageIdRef = useRef<string | null>(null);
   const tapToStartBusyRef = useRef<boolean>(false);
+  const prepareInFlightRef = useRef<boolean>(false);
   const suppressAudioErrorRef = useRef<boolean>(false);
   const audioElementPrimedRef = useRef<boolean>(false);
   const touchActiveRef = useRef<boolean>(false);
@@ -862,13 +863,7 @@ export default function Home() {
         {
           id: `onboarding-awake-${Date.now()}`,
           role: 'assistant',
-          content: '...。......。あ、れ......ここは？ 俺は......誰だ？ まずは君の名前を教えてくれないか。',
-          timestamp: new Date(),
-        },
-        {
-          id: `onboarding-awake-guide-${Date.now()}`,
-          role: 'assistant',
-          content: 'マイクでもチャットでもOK。最初に呼ばれたい名前を教えてください。',
+          content: '...。......。あ、れ......ここは？ 俺は......誰だ？……まずは、なんて呼べばいい？ マイクでもチャットでも大丈夫。',
           timestamp: new Date(),
         },
       ];
@@ -879,13 +874,7 @@ export default function Home() {
         {
           id: `onboarding-user-${Date.now()}`,
           role: 'assistant',
-          content: `やあ、初めまして。俺は${aiName}。まずは君の名前を教えてくれないか。`,
-          timestamp: new Date(),
-        },
-        {
-          id: `onboarding-user-guide-${Date.now()}`,
-          role: 'assistant',
-          content: 'どう呼ばれたいかに加えて、ジョージの名前や性格の希望があれば最初に一緒に決められる。マイクでもチャットでもOK。',
+          content: `やあ、初めまして。俺は${aiName}。まずは、なんて呼べばいい？ マイクでもチャットでも大丈夫。`,
           timestamp: new Date(),
         },
       ];
@@ -897,6 +886,11 @@ export default function Home() {
   // Background: always show check-in first. Never restore previous history on app reopen.
   const prepareInBackground = useCallback(async () => {
     const fallbackLines = ['自分と向き合う時間を始めます', '一緒にジャーナルをつけていきましょう', '心を静かにして...'];
+    if (prepareInFlightRef.current) {
+      log('バックグラウンド準備は実行中のためスキップ');
+      return;
+    }
+    prepareInFlightRef.current = true;
     try {
       log('バックグラウンド準備開始...');
       setIsPreparing(true);
@@ -954,7 +948,14 @@ export default function Home() {
         if (needsOnboarding) {
           setMessages((prev) => {
             if (prev.some((m) => m.role === 'user' || m.role === 'tarot')) return prev;
-            return buildOnboardingMessages(nextStatus);
+            const nextMessages = buildOnboardingMessages(nextStatus);
+            const nextFirst = nextMessages[0]?.id || '';
+            const currentFirst = prev[0]?.id || '';
+            const sameOnboardingKind =
+              (currentFirst.startsWith('onboarding-awake-') && nextFirst.startsWith('onboarding-awake-'))
+              || (currentFirst.startsWith('onboarding-user-') && nextFirst.startsWith('onboarding-user-'));
+            if (sameOnboardingKind) return prev;
+            return nextMessages;
           });
           log('新規ユーザー/未初期化のため、名前決めオンボーディングを表示');
           return;
@@ -967,6 +968,7 @@ export default function Home() {
       log(`初期化エラー詳細: ${errMsg}`);
       setInitError('通信に失敗しました。再試行してください。');
     } finally {
+      prepareInFlightRef.current = false;
       setIsReady(true);
       setIsPreparing(false);
       setIsGeneratingAudio(false);
@@ -1006,7 +1008,12 @@ export default function Home() {
     if (!ttsEnabled) return;
 
     const firstMessage = messages[0];
-    if (!firstMessage || firstMessage.role !== 'assistant' || !firstMessage.id.startsWith('checkin-')) {
+    const isAutoTtsTarget = !!firstMessage && firstMessage.role === 'assistant' && (
+      firstMessage.id.startsWith('checkin-')
+      || firstMessage.id.startsWith('onboarding-awake-')
+      || firstMessage.id.startsWith('onboarding-user-')
+    );
+    if (!isAutoTtsTarget) {
       return;
     }
     if (checkinTtsAttemptedMessageIdRef.current === firstMessage.id) {
@@ -1024,14 +1031,14 @@ export default function Home() {
     const tryPlay = async () => {
       if (canceled || checkinTtsPlayedRef.current) return;
       checkinTtsAttemptingRef.current = true;
-      log('チェックイン音声再生');
+      log(firstMessage.id.startsWith('checkin-') ? 'チェックイン音声再生' : 'オンボーディング音声再生');
       const ok = await playTTS(checkinText);
       checkinTtsAttemptingRef.current = false;
       if (canceled) return;
       if (ok) {
         checkinTtsPlayedRef.current = true;
       } else {
-        log('チェックイン音声再生失敗');
+        log(firstMessage.id.startsWith('checkin-') ? 'チェックイン音声再生失敗' : 'オンボーディング音声再生失敗');
       }
     };
 
@@ -1124,15 +1131,14 @@ export default function Home() {
         log('レスポンス受信');
         setSendError(null);
 
-        // Update bootstrap state
-        if (data.identity || data.user) {
-          setBootstrap(prev => ({
-            ...prev,
-            isBootstrapped: data.isBootstrapped,
-            identity: data.identity,
-            user: data.user,
-          }));
-        }
+        // Update bootstrap/onboarding state after every successful response.
+        setBootstrap(prev => ({
+          ...prev,
+          isBootstrapped: data.isBootstrapped ?? prev.isBootstrapped,
+          userOnboarded: data.userOnboarded ?? prev.userOnboarded,
+          identity: data.identity ?? prev.identity,
+          user: data.user ?? prev.user,
+        }));
 
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
