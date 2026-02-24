@@ -863,7 +863,7 @@ export default function Home() {
         {
           id: `onboarding-awake-${Date.now()}`,
           role: 'assistant',
-          content: '...。......。あ、れ......ここは？ 俺は......誰だ？……まずは、なんて呼べばいい？ マイクでもチャットでも大丈夫。',
+          content: '...。......。あ、れ......ここは？ 俺は......誰だ？ まだ少し目が覚めきってないみたいだ。……まずは、なんて呼べばいい？ マイクでもチャットでも大丈夫。',
           timestamp: new Date(),
         },
       ];
@@ -874,7 +874,7 @@ export default function Home() {
         {
           id: `onboarding-user-${Date.now()}`,
           role: 'assistant',
-          content: `やあ、初めまして。俺は${aiName}。まずは、なんて呼べばいい？ マイクでもチャットでも大丈夫。`,
+          content: `やあ、初めまして。俺は${aiName}。……まだ少し寝起きみたいにぼんやりしてるけど、まずは、なんて呼べばいい？ マイクでもチャットでも大丈夫。`,
           timestamp: new Date(),
         },
       ];
